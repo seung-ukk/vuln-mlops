@@ -108,3 +108,8 @@ pytest
 ```
 
 On PowerShell, activate the environment with `.venv\\Scripts\\Activate.ps1`.
+
+## Team setup and safe PoC
+
+Clone/run instructions and marker-only SSRF/RCE verification are documented in
+[docs/TEAM_GUIDE_AND_POC.md](docs/TEAM_GUIDE_AND_POC.md).

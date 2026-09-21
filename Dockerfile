@@ -16,6 +16,7 @@ RUN pip install --no-cache-dir --requirement /opt/modelgate/requirements/base.tx
     && chown -R 10001:10001 /var/lib/modelgate /artifacts /tmp/modelgate
 
 COPY --chown=10001:10001 modelgate /opt/modelgate/modelgate
+COPY --chown=10001:10001 poc /opt/modelgate/poc
 
 USER 10001:10001
 
