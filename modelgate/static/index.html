@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ModelGate</title>
+    <style>
+      :root { color-scheme: dark; font-family: Inter, system-ui, sans-serif; }
+      body { margin: 0; background: #0b1020; color: #e8ecf5; }
+      main { max-width: 920px; margin: 0 auto; padding: 48px 20px; }
+      header { margin-bottom: 28px; }
+      h1 { margin: 0 0 8px; font-size: 36px; }
+      .subtitle { color: #9ba8c6; }
+      .warning { padding: 12px 16px; border: 1px solid #9d6d20; background: #2a200d; border-radius: 10px; }
+      .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 18px; margin-top: 22px; }
+      section { background: #141b31; border: 1px solid #26304d; border-radius: 14px; padding: 20px; }
+      label { display: block; margin: 12px 0 5px; color: #b9c4dc; }
+      input, textarea, button { box-sizing: border-box; width: 100%; padding: 10px 12px; border-radius: 8px; border: 1px solid #394567; background: #0d1428; color: inherit; }
+      button { margin-top: 14px; background: #3d6df2; border-color: #3d6df2; font-weight: 700; cursor: pointer; }
+      pre { min-height: 90px; overflow: auto; white-space: pre-wrap; color: #b7c7ef; }
+      code { color: #9ec1ff; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1>ModelGate</h1>
+        <div class="subtitle">Internal model onboarding and compatibility validation</div>
+      </header>
+      <p class="warning">Authorized isolated security lab only. Do not expose this service to the public Internet.</p>
+      <div class="grid">
+        <section>
+          <h2>Register model</h2>
+          <form id="model-form">
+            <label for="model-name">Model name</label>
+            <input id="model-name" value="fraud-detection" required />
+            <label for="artifact-uri">Artifact URI</label>
+            <input id="artifact-uri" placeholder="models:/m-&lt;logged-model-id&gt;" required />
+            <label for="description">Description</label>
+            <textarea id="description">Compatibility validation candidate</textarea>
+            <button type="submit">Register and validate</button>
+          </form>
+          <pre id="model-output">Waiting for input.</pre>
+        </section>
+        <section>
+          <h2>Webhook connectivity</h2>
+          <form id="webhook-form">
+            <label for="webhook-name">Webhook name</label>
+            <input id="webhook-name" value="model-created-notifier" required />
+            <label for="webhook-url">HTTPS callback URL</label>
+            <input id="webhook-url" value="https://example.com/model-events" required />
+            <button type="submit">Create webhook</button>
+          </form>
+          <pre id="webhook-output">Waiting for input.</pre>
+        </section>
+      </div>
+    </main>
+    <script>
+      const show = (id, value) => {
+        document.getElementById(id).textContent = JSON.stringify(value, null, 2);
+      };
+      async function postJson(url, body) {
+        const response = await fetch(url, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        const text = await response.text();
+        let parsed;
+        try { parsed = JSON.parse(text); } catch { parsed = { status: response.status, body: text }; }
+        if (!response.ok) throw parsed;
+        return parsed;
+      }
+      document.getElementById("model-form").addEventListener("submit", async (event) => {
+        event.preventDefault();
+        try {
+          show("model-output", await postJson("/api/models", {
+            name: document.getElementById("model-name").value,
+            artifact_uri: document.getElementById("artifact-uri").value,
+            description: document.getElementById("description").value,
+          }));
+        } catch (error) { show("model-output", error); }
+      });
+      document.getElementById("webhook-form").addEventListener("submit", async (event) => {
+        event.preventDefault();
+        try {
+          show("webhook-output", await postJson("/api/webhooks", {
+            name: document.getElementById("webhook-name").value,
+            url: document.getElementById("webhook-url").value,
+            events: [{ entity: "REGISTERED_MODEL", action: "CREATED" }],
+            description: "ModelGate registration notification",
+          }));
+        } catch (error) { show("webhook-output", error); }
+      });
+    </script>
+  </body>
+</html>

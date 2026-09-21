@@ -1,0 +1,148 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: modelgate
+  namespace: modelgate-lab
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: modelgate
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: modelgate
+        app.kubernetes.io/part-of: vuln-mlops-lab
+    spec:
+      serviceAccountName: modelgate
+      automountServiceAccountToken: true
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: api
+          image: ghcr.io/seung-ukk/vuln-mlops/modelgate:0.1.0
+          imagePullPolicy: IfNotPresent
+          command: ["uvicorn"]
+          args: ["modelgate.main:app", "--host", "0.0.0.0", "--port", "8080"]
+          ports:
+            - name: http
+              containerPort: 8080
+          env: &common-env
+            - name: MODELGATE_ENV
+              value: kubernetes-lab
+            - name: MODELGATE_DB_PATH
+              value: /var/lib/modelgate/jobs.db
+            - name: MODELGATE_ARTIFACT_ROOT
+              value: file:///artifacts
+            - name: MLFLOW_TRACKING_URI
+              value: http://127.0.0.1:5000
+            - name: MLFLOW_ALLOW_PICKLE_DESERIALIZATION
+              value: "false"
+            - name: MODELGATE_ENABLE_WEBHOOKS
+              value: "true"
+            - name: MODELGATE_ENABLE_AUTO_VALIDATION
+              value: "true"
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          securityContext: &container-security
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts: &volume-mounts
+            - name: state
+              mountPath: /var/lib/modelgate
+            - name: artifacts
+              mountPath: /artifacts
+            - name: api-tmp
+              mountPath: /tmp
+
+        - name: mlflow-registry
+          image: ghcr.io/seung-ukk/vuln-mlops/modelgate:0.1.0
+          imagePullPolicy: IfNotPresent
+          command: ["mlflow"]
+          args:
+            - server
+            - --host
+            - 127.0.0.1
+            - --port
+            - "5000"
+            - --backend-store-uri
+            - sqlite:////var/lib/modelgate/mlflow.db
+            - --artifacts-destination
+            - file:///artifacts
+            - --serve-artifacts
+          env:
+            - name: MLFLOW_ALLOW_PICKLE_DESERIALIZATION
+              value: "false"
+            - name: MLFLOW_WEBHOOK_ALLOW_PRIVATE_IPS
+              value: "false"
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+          securityContext: *container-security
+          volumeMounts:
+            - name: state
+              mountPath: /var/lib/modelgate
+            - name: artifacts
+              mountPath: /artifacts
+            - name: mlflow-tmp
+              mountPath: /tmp
+
+        - name: validator
+          image: ghcr.io/seung-ukk/vuln-mlops/modelgate:0.1.0
+          imagePullPolicy: IfNotPresent
+          command: ["python", "-m", "modelgate.worker"]
+          env: *common-env
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+          securityContext: *container-security
+          volumeMounts:
+            - name: state
+              mountPath: /var/lib/modelgate
+            - name: artifacts
+              mountPath: /artifacts
+            - name: validator-tmp
+              mountPath: /tmp
+      volumes:
+        - name: state
+          emptyDir: {}
+        - name: artifacts
+          emptyDir: {}
+        - name: api-tmp
+          emptyDir: {}
+        - name: mlflow-tmp
+          emptyDir: {}
+        - name: validator-tmp
+          emptyDir: {}

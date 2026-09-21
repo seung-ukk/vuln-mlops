@@ -1,0 +1,41 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../base
+patches:
+  - target:
+      kind: NetworkPolicy
+      name: modelgate
+    patch: |-
+      - op: replace
+        path: /spec/egress
+        value:
+          - to:
+              - namespaceSelector:
+                  matchLabels:
+                    kubernetes.io/metadata.name: kube-system
+            ports:
+              - protocol: UDP
+                port: 53
+              - protocol: TCP
+                port: 53
+          - to:
+              - ipBlock:
+                  cidr: 0.0.0.0/0
+            ports:
+              - protocol: TCP
+                port: 443
+          - to:
+              - ipBlock:
+                  cidr: 10.0.0.0/8
+            ports:
+              - protocol: TCP
+                port: 80
+              - protocol: TCP
+                port: 443
+          - to:
+              - ipBlock:
+                  cidr: 169.254.169.254/32
+            ports:
+              - protocol: TCP
+                port: 80

@@ -1,0 +1,89 @@
+name: modelgate-lab
+
+x-modelgate-image: &modelgate-image
+  build:
+    context: .
+  image: vuln-mlops/modelgate:0.1.0
+
+x-modelgate-env: &modelgate-env
+  MLFLOW_TRACKING_URI: http://mlflow:5000
+  MLFLOW_ALLOW_PICKLE_DESERIALIZATION: "false"
+  MODELGATE_DB_PATH: /var/lib/modelgate/jobs.db
+  MODELGATE_ARTIFACT_ROOT: file:///artifacts
+  MODELGATE_ENV: local-compose
+
+services:
+  mlflow:
+    <<: *modelgate-image
+    command:
+      - mlflow
+      - server
+      - --host
+      - 0.0.0.0
+      - --port
+      - "5000"
+      - --allowed-hosts
+      - mlflow:5000,localhost,127.0.0.1
+      - --backend-store-uri
+      - sqlite:////var/lib/modelgate/mlflow.db
+      - --artifacts-destination
+      - file:///artifacts
+      - --serve-artifacts
+    environment:
+      <<: *modelgate-env
+      MLFLOW_WEBHOOK_ALLOW_PRIVATE_IPS: "false"
+    ports:
+      - "127.0.0.1:5000:5000"
+    volumes:
+      - state:/var/lib/modelgate
+      - artifacts:/artifacts
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/health', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+  api:
+    <<: *modelgate-image
+    command: ["uvicorn", "modelgate.main:app", "--host", "0.0.0.0", "--port", "8080"]
+    environment:
+      <<: *modelgate-env
+      MODELGATE_ENABLE_WEBHOOKS: "true"
+      MODELGATE_ENABLE_AUTO_VALIDATION: "true"
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - state:/var/lib/modelgate
+      - artifacts:/artifacts
+    depends_on:
+      mlflow:
+        condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+  validator:
+    <<: *modelgate-image
+    command: ["python", "-m", "modelgate.worker"]
+    environment:
+      <<: *modelgate-env
+      MODELGATE_WORKER_POLL_SECONDS: "2"
+    volumes:
+      - state:/var/lib/modelgate
+      - artifacts:/artifacts
+    depends_on:
+      mlflow:
+        condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+volumes:
+  state:
+  artifacts:
