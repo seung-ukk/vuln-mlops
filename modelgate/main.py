@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import tempfile
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
@@ -12,6 +13,13 @@ from fastapi.responses import FileResponse
 from mlflow.exceptions import MlflowException
 
 from modelgate import __version__
+from modelgate.artifacts import (
+    ArtifactUploadError,
+    UploadLimits,
+    publish_logged_model,
+    remove_stored_bundle,
+    store_model_bundle,
+)
 from modelgate.config import get_settings
 from modelgate.db import enqueue_job, get_job, init_db
 from modelgate.logging import configure_logging
@@ -83,6 +91,94 @@ async def metadata() -> dict[str, Any]:
         "auto_validation_enabled": settings.enable_auto_validation,
         "notice": "Authorized isolated security lab only",
     }
+
+
+@app.post("/api/artifacts", status_code=status.HTTP_201_CREATED)
+async def upload_artifact(request: Request) -> dict[str, Any]:
+    """Accept a bounded ZIP containing exactly one MLflow model bundle."""
+
+    settings = get_settings()
+    content_type = request.headers.get("content-type", "").split(";", 1)[0].strip()
+    if content_type not in {"application/zip", "application/x-zip-compressed"}:
+        raise HTTPException(
+            status_code=415,
+            detail="Content-Type must be application/zip",
+        )
+
+    content_length = request.headers.get("content-length")
+    if content_length:
+        try:
+            declared_size = int(content_length)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="Invalid Content-Length") from exc
+        if declared_size > settings.upload_max_bytes:
+            raise HTTPException(status_code=413, detail="Model bundle is too large")
+
+    upload_root = Path(settings.upload_root)
+    upload_root.mkdir(parents=True, exist_ok=True)
+    temporary_path: Path | None = None
+    received = 0
+    try:
+        with tempfile.NamedTemporaryFile(
+            prefix=".upload-", suffix=".zip", dir=upload_root, delete=False
+        ) as temporary:
+            temporary_path = Path(temporary.name)
+            async for chunk in request.stream():
+                received += len(chunk)
+                if received > settings.upload_max_bytes:
+                    raise HTTPException(status_code=413, detail="Model bundle is too large")
+                temporary.write(chunk)
+
+        if received == 0:
+            raise HTTPException(status_code=400, detail="Model bundle is empty")
+
+        try:
+            stored = await run_in_threadpool(
+                store_model_bundle,
+                temporary_path,
+                upload_root,
+                UploadLimits(
+                    max_files=settings.upload_max_files,
+                    max_extracted_bytes=settings.upload_max_extracted_bytes,
+                ),
+            )
+        except ArtifactUploadError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+        try:
+            try:
+                artifact_uri = await run_in_threadpool(
+                    publish_logged_model,
+                    stored,
+                    settings.tracking_uri,
+                    settings.upload_experiment_id,
+                )
+            except MlflowException as exc:
+                raise HTTPException(
+                    status_code=502,
+                    detail=f"Could not publish uploaded model to MLflow: {exc}",
+                ) from exc
+        finally:
+            await run_in_threadpool(remove_stored_bundle, stored)
+
+        logger.info(
+            "Model artifact uploaded",
+            extra={
+                "upload_id": stored.upload_id,
+                "file_count": stored.file_count,
+                "extracted_bytes": stored.extracted_bytes,
+            },
+        )
+        return {
+            "upload_id": stored.upload_id,
+            "artifact_uri": artifact_uri,
+            "archive_bytes": received,
+            "file_count": stored.file_count,
+            "extracted_bytes": stored.extracted_bytes,
+        }
+    finally:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
 
 
 @app.post("/api/models", status_code=status.HTTP_201_CREATED)

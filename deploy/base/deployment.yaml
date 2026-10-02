@@ -25,7 +25,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: api
-          image: ghcr.io/seung-ukk/vuln-mlops/modelgate:0.1.0
+          image: ghcr.io/seung-ukk/vuln-mlops:main
           imagePullPolicy: IfNotPresent
           command: ["uvicorn"]
           args: ["modelgate.main:app", "--host", "0.0.0.0", "--port", "8080"]
@@ -39,6 +39,16 @@ spec:
               value: /var/lib/modelgate/jobs.db
             - name: MODELGATE_ARTIFACT_ROOT
               value: file:///artifacts
+            - name: MODELGATE_UPLOAD_ROOT
+              value: /artifacts/uploads
+            - name: MODELGATE_UPLOAD_MAX_BYTES
+              value: "67108864"
+            - name: MODELGATE_UPLOAD_MAX_FILES
+              value: "256"
+            - name: MODELGATE_UPLOAD_MAX_EXTRACTED_BYTES
+              value: "268435456"
+            - name: MODELGATE_UPLOAD_EXPERIMENT_ID
+              value: "0"
             - name: MLFLOW_TRACKING_URI
               value: http://127.0.0.1:5000
             - name: MLFLOW_ALLOW_PICKLE_DESERIALIZATION
@@ -80,7 +90,7 @@ spec:
               mountPath: /tmp
 
         - name: mlflow-registry
-          image: ghcr.io/seung-ukk/vuln-mlops/modelgate:0.1.0
+          image: ghcr.io/seung-ukk/vuln-mlops:main
           imagePullPolicy: IfNotPresent
           command: ["mlflow"]
           args:
@@ -116,7 +126,7 @@ spec:
               mountPath: /tmp
 
         - name: validator
-          image: ghcr.io/seung-ukk/vuln-mlops/modelgate:0.1.0
+          image: ghcr.io/seung-ukk/vuln-mlops:main
           imagePullPolicy: IfNotPresent
           command: ["python", "-m", "modelgate.worker"]
           env: *common-env

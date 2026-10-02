@@ -56,6 +56,7 @@ Useful API endpoints:
 
 | Method | Path | Purpose |
 | --- | --- | --- |
+| `POST` | `/api/artifacts` | Upload a zipped MLflow model bundle and receive its artifact URI |
 | `POST` | `/api/models` | Register a model version and queue validation |
 | `GET` | `/api/models/{name}` | Read registry metadata |
 | `POST` | `/api/models/{name}/versions/{version}/validate` | Queue validation |
@@ -71,6 +72,29 @@ curl -sS http://127.0.0.1:8080/api/models \
   -H 'content-type: application/json' \
   -d '{"name":"fraud-detection","artifact_uri":"models:/m-REPLACE_WITH_LOGGED_MODEL_ID","description":"lab compatibility check"}'
 ```
+
+An external client can upload a model directory without direct access to the
+MLflow container. The ZIP must contain exactly one `MLmodel` manifest. Archive
+size, extracted size, file count, paths, duplicate entries, encryption, and
+symbolic links are validated before the bundle is stored:
+
+```bash
+curl -sS http://127.0.0.1:8080/api/artifacts \
+  -H 'content-type: application/zip' \
+  --data-binary @model-bundle.zip
+```
+
+The API validates and stores the bundle, publishes it as an MLflow logged model,
+and returns a `models:/m-...` `artifact_uri`. Use that URI in `POST /api/models`.
+This makes the complete upload, registration, and automatic validation workflow
+reachable through the public ModelGate API; direct access to MLflow is not required.
+
+## Container image publishing
+
+Pull requests build the image without publishing it. Pushes to `main` publish
+`ghcr.io/seung-ukk/vuln-mlops:main`, `:latest`, and an immutable `:sha-...` tag.
+Tags beginning with `v` publish the corresponding release tag. Kubernetes
+deployments should use an immutable digest for shared lab releases.
 
 No malicious model, credential collection code, redirector, or AWS mutation script is
 included in this repository.
