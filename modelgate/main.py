@@ -5,6 +5,7 @@ import tempfile
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
+from uuid import UUID
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request, Response, status
@@ -23,6 +24,7 @@ from modelgate.artifacts import (
 from modelgate.config import get_settings
 from modelgate.db import enqueue_job, get_job, init_db
 from modelgate.logging import configure_logging
+from modelgate.proofs import rce_proof_observed
 from modelgate.registry import (
     approve_model,
     get_registered_model,
@@ -90,6 +92,24 @@ async def metadata() -> dict[str, Any]:
         "webhooks_enabled": settings.enable_webhooks,
         "auto_validation_enabled": settings.enable_auto_validation,
         "notice": "Authorized isolated security lab only",
+    }
+
+
+@app.get("/api/proofs/rce/{proof_id}")
+async def read_rce_proof(proof_id: UUID) -> dict[str, Any]:
+    """Return a fixed proof response after the validator creates a marker."""
+
+    settings = get_settings()
+    observed = await run_in_threadpool(
+        rce_proof_observed, settings.rce_proof_root, proof_id
+    )
+    if not observed:
+        raise HTTPException(status_code=404, detail="RCE proof has not been observed")
+    return {
+        "proof": "rce",
+        "success": True,
+        "proof_id": str(proof_id),
+        "evidence": "validator marker observed",
     }
 
 

@@ -1,4 +1,5 @@
 import builtins
+import uuid
 
 from fastapi.testclient import TestClient
 
@@ -19,11 +20,15 @@ def test_internal_canary_is_synthetic():
 
 
 def test_rce_payload_is_limited_to_marker_statement():
-    callable_, args = MarkerPayload().__reduce__()
+    proof_id = uuid.UUID("12345678-1234-5678-1234-567812345678")
+    callable_, args = MarkerPayload(proof_id).__reduce__()
 
     assert callable_ is builtins.exec
     assert len(args) == 1
-    assert "/tmp/modelgate-rce-proof" in args[0]
+    assert "/var/lib/modelgate/rce-proofs" in args[0]
+    assert str(proof_id) in args[0]
     assert MARKER_PREFIX in args[0]
     assert "socket" not in args[0]
     assert "subprocess" not in args[0]
+    assert "serviceaccount" not in args[0].lower()
+    assert "token" not in args[0].lower()

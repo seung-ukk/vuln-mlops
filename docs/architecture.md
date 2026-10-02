@@ -20,6 +20,8 @@ model compatibility validation.
 - Only the ModelGate API is exposed by the Kubernetes Service.
 - The MLflow server is reachable from containers in the same Pod over loopback.
 - The API and worker share a job database using an `emptyDir` volume.
+- The API and worker share a proof directory. The API checks only a UUID-named file
+  containing one fixed marker and never returns attacker-controlled file content.
 - Model artifacts use a shared local volume in the base deployment. An approved lab
   can replace this with a dedicated S3 prefix.
 - The Pod uses one ServiceAccount so the application identity is consistent across

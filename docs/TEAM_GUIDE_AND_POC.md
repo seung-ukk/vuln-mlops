@@ -114,18 +114,35 @@ redirect service는 `url`과 `status_code=302` query parameter를 지원해야 �
 
 ### 실행
 
+PoC는 Docker 내부에서 실행하지 않는다. 별도의 로컬 Python 3.11 환경에서
+ModelGate의 외부 API만 사용한다.
+
 ```bash
-docker compose exec -T validator python poc/rce_marker.py
+python -m venv .poc-venv
+. .poc-venv/bin/activate
+pip install -r requirements/dev.txt
+POC_MODELGATE_URL=http://127.0.0.1:8080 python poc/rce_marker.py
+```
+
+PowerShell에서는 다음처럼 실행한다.
+
+```powershell
+python -m venv .poc-venv
+.\.poc-venv\Scripts\python.exe -m pip install -r requirements\dev.txt
+$env:POC_MODELGATE_URL = "http://127.0.0.1:8080"
+.\.poc-venv\Scripts\python.exe poc\rce_marker.py
 ```
 
 스크립트는 다음 순서로 동작한다.
 
 1. 정상 statsmodels MLflow 모델 디렉터리를 만든다.
-2. 모델 pickle을 `/tmp` marker만 생성하는 합성 payload로 교체한다.
-3. MLflow run artifact로 업로드하고 ModelGate에 모델 버전을 등록한다.
-4. validator가 `mlflow.pyfunc.load_model()`로 모델을 자동 로드한다.
-5. `MLFLOW_ALLOW_PICKLE_DESERIALIZATION=false` 상태에서도 statsmodels loader가
-   역직렬화를 수행하여 marker 파일이 생성된다.
+2. 모델 pickle을 UUID marker만 생성하는 합성 payload로 교체한다.
+3. ZIP bundle을 외부 `POST /api/artifacts` API로 업로드한다.
+4. 반환된 `models:/m-...` URI를 `POST /api/models`에 전달한다.
+5. validator가 `mlflow.pyfunc.load_model()`로 모델을 자동 로드한다.
+6. `MLFLOW_ALLOW_PICKLE_DESERIALIZATION=false` 상태에서도 statsmodels loader가
+   역직렬화를 수행하여 공유 state volume에 marker 파일을 생성한다.
+7. 외부 `GET /api/proofs/rce/{proof_id}`로 실행 여부를 확인한다.
 
 성공 출력 예시:
 
@@ -133,21 +150,20 @@ docker compose exec -T validator python poc/rce_marker.py
 {
   "proof": "rce",
   "success": true,
+  "proof_id": "2f63af50-fa2b-496a-9d16-68aef871380c",
+  "artifact_uri": "models:/m-ddca7ebc12704de08aab862b7a5b4065",
   "validation_status": "succeeded",
-  "marker_path": "/tmp/modelgate-rce-proof",
-  "marker": "MODELGATE_RCE_PROOF uid=10001",
-  "pickle_safety_setting": "false"
+  "evidence": "validator marker observed"
 }
 ```
 
-별도로 marker를 확인하려면 다음 명령을 사용한다.
+proof API는 marker의 내용, 파일 경로, 컨테이너 환경 또는 credential을 반환하지
+않는다. 정확한 UUID 파일이 고정 문자열 `MODELGATE_RCE_PROOF`와 일치할 때만
+고정된 `validator marker observed` 응답을 반환한다. 따라서 proof 채널을 임의
+파일 읽기나 ServiceAccount token 반출 경로로 사용할 수 없다.
 
-```bash
-docker compose exec -T validator python -c "from pathlib import Path; print(Path('/tmp/modelgate-rce-proof').read_text())"
-```
-
-이 PoC는 파일 한 개를 validator의 임시 디렉터리에 기록할 뿐이며 셸 연결,
-네트워크 callback, credential 접근 또는 호스트 파일 접근을 수행하지 않는다.
+이 PoC payload는 marker 파일 한 개만 기록하며 셸 연결, 네트워크 callback,
+credential 접근 또는 호스트 파일 접근을 수행하지 않는다.
 
 ## 6. 로그와 증거 수집
 
@@ -161,7 +177,7 @@ docker compose ps > modelgate-containers.txt
 - 이미지의 MLflow 버전: `3.13.0`
 - `MLFLOW_ALLOW_PICKLE_DESERIALIZATION=false`
 - SSRF canary 문자열 및 webhook ID
-- RCE validation job ID와 marker 내용
+- RCE proof ID, upload ID, validation job ID와 고정 evidence
 - 테스트 시각과 Git commit SHA
 
 ## 7. 종료 및 초기화

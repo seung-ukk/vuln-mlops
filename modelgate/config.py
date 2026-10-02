@@ -23,6 +23,7 @@ class Settings:
     upload_max_files: int
     upload_max_extracted_bytes: int
     upload_experiment_id: str
+    rce_proof_root: str
     enable_webhooks: bool
     enable_auto_validation: bool
     worker_poll_seconds: float
@@ -47,6 +48,9 @@ def get_settings() -> Settings:
             )
         ),
         upload_experiment_id=os.getenv("MODELGATE_UPLOAD_EXPERIMENT_ID", "0"),
+        rce_proof_root=os.getenv(
+            "MODELGATE_RCE_PROOF_ROOT", "/var/lib/modelgate/rce-proofs"
+        ),
         enable_webhooks=_as_bool("MODELGATE_ENABLE_WEBHOOKS", True),
         enable_auto_validation=_as_bool(
             "MODELGATE_ENABLE_AUTO_VALIDATION", True

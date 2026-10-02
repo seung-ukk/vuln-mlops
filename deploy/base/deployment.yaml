@@ -49,6 +49,8 @@ spec:
               value: "268435456"
             - name: MODELGATE_UPLOAD_EXPERIMENT_ID
               value: "0"
+            - name: MODELGATE_RCE_PROOF_ROOT
+              value: /var/lib/modelgate/rce-proofs
             - name: MLFLOW_TRACKING_URI
               value: http://127.0.0.1:5000
             - name: MLFLOW_ALLOW_PICKLE_DESERIALIZATION

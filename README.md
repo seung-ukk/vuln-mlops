@@ -57,6 +57,7 @@ Useful API endpoints:
 | Method | Path | Purpose |
 | --- | --- | --- |
 | `POST` | `/api/artifacts` | Upload a zipped MLflow model bundle and receive its artifact URI |
+| `GET` | `/api/proofs/rce/{proof_id}` | Verify a fixed marker without returning file content |
 | `POST` | `/api/models` | Register a model version and queue validation |
 | `GET` | `/api/models/{name}` | Read registry metadata |
 | `POST` | `/api/models/{name}/versions/{version}/validate` | Queue validation |
@@ -96,8 +97,9 @@ Pull requests build the image without publishing it. Pushes to `main` publish
 Tags beginning with `v` publish the corresponding release tag. Kubernetes
 deployments should use an immutable digest for shared lab releases.
 
-No malicious model, credential collection code, redirector, or AWS mutation script is
-included in this repository.
+The only deserialization payload included creates a fixed synthetic marker for the
+authorized PoC. No reverse shell, credential collection code, arbitrary proof-file
+read API, redirector, or AWS mutation script is included in this repository.
 
 ## Kubernetes deployment
 

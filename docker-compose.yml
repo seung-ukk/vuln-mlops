@@ -15,6 +15,7 @@ x-modelgate-env: &modelgate-env
   MODELGATE_UPLOAD_MAX_FILES: "256"
   MODELGATE_UPLOAD_MAX_EXTRACTED_BYTES: "268435456"
   MODELGATE_UPLOAD_EXPERIMENT_ID: "0"
+  MODELGATE_RCE_PROOF_ROOT: /var/lib/modelgate/rce-proofs
   MODELGATE_ENV: local-compose
 
 services:
