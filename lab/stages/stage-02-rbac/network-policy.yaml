@@ -1,0 +1,75 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: stage-02-default-deny
+  namespace: stage-02-rbac
+  labels:
+    lab.vuln-mlops/stage: "02"
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: stage-02-api-egress
+  namespace: stage-02-rbac
+  labels:
+    lab.vuln-mlops/stage: "02"
+spec:
+  podSelector:
+    matchLabels:
+      job-name: stage-02-secret-reader
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # kind-config.yaml fixes the kubernetes Service IP to 10.96.0.1. Patch this
+    # single address for another disposable cluster; do not widen it to a VPC CIDR.
+    - to:
+        - ipBlock:
+            cidr: 10.96.0.1/32
+      ports:
+        - protocol: TCP
+          port: 443
+    # kind's kube-proxy DNATs the Service IP to the control-plane container.
+    # Only the Kubernetes API port is open on the disposable Docker network.
+    - to:
+        - ipBlock:
+            cidr: 172.16.0.0/12
+      ports:
+        - protocol: TCP
+          port: 6443
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: modelgate-stage-02-api-egress
+  namespace: modelgate-lab
+  labels:
+    lab.vuln-mlops/stage: "02"
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: modelgate
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 10.96.0.1/32
+      ports:
+        - protocol: TCP
+          port: 443
+    - to:
+        - ipBlock:
+            cidr: 172.16.0.0/12
+      ports:
+        - protocol: TCP
+          port: 6443
