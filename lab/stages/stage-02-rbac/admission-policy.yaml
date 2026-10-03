@@ -1,0 +1,63 @@
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: stage-02-job-shape
+  labels:
+    lab.vuln-mlops/stage: "02"
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["batch"]
+        apiVersions: ["v1"]
+        operations: ["CREATE"]
+        resources: ["jobs"]
+        scope: Namespaced
+  matchConditions:
+    - name: stage-02-only
+      expression: request.namespace == 'stage-02-rbac'
+  validations:
+    - expression: object.metadata.name == 'stage-02-secret-reader'
+      message: Stage 2 permits only the fixed stage-02-secret-reader Job.
+    - expression: object.spec.template.spec.serviceAccountName == 'monitoring-runner'
+      message: Stage 2 Jobs must use the monitoring-runner ServiceAccount.
+    - expression: has(object.spec.template.spec.automountServiceAccountToken) && object.spec.template.spec.automountServiceAccountToken == true
+      message: The fixed reader Job requires its monitoring-runner token.
+    - expression: object.spec.template.spec.restartPolicy == 'Never' && object.spec.backoffLimit == 0
+      message: Stage 2 Jobs must use restartPolicy Never and backoffLimit 0.
+    - expression: size(object.spec.template.spec.containers) == 1 && !has(object.spec.template.spec.initContainers)
+      message: Stage 2 Jobs permit exactly one container and no init containers.
+    - expression: object.spec.template.spec.containers[0].name == 'reader'
+      message: The Stage 2 container name is fixed.
+    - expression: object.spec.template.spec.containers[0].image == 'registry.k8s.io/kubectl:v1.37.0@sha256:5ed410ebac5dc976cc717098994dcdb29bbbd38f6bd65f582311f5be4ba719cf'
+      message: The Stage 2 runner image is pinned and allowlisted.
+    - expression: object.spec.template.spec.containers[0].command == ['/bin/kubectl']
+      message: The Stage 2 reader command is fixed.
+    - expression: object.spec.template.spec.containers[0].args == ['get', 'secret', 'stage-02-flag', '--namespace=stage-02-rbac', '--output=jsonpath={.data.flag}']
+      message: The Stage 2 reader arguments are fixed to the synthetic proof Secret.
+    - expression: '!has(object.spec.template.spec.hostNetwork) || object.spec.template.spec.hostNetwork == false'
+      message: hostNetwork is forbidden.
+    - expression: '!has(object.spec.template.spec.hostPID) || object.spec.template.spec.hostPID == false'
+      message: hostPID is forbidden.
+    - expression: '!has(object.spec.template.spec.hostIPC) || object.spec.template.spec.hostIPC == false'
+      message: hostIPC is forbidden.
+    - expression: '!has(object.spec.template.spec.volumes) || object.spec.template.spec.volumes.all(volume, has(volume.projected) && volume.projected.sources.all(source, has(source.serviceAccountToken) || has(source.downwardAPI) || (has(source.configMap) && source.configMap.name == ''kube-root-ca.crt'')))'
+      message: Only the injected kube-api-access projected volume is permitted.
+    - expression: '!has(object.spec.template.spec.containers[0].volumeMounts) || object.spec.template.spec.containers[0].volumeMounts.all(mount, mount.name.startsWith(''kube-api-access-'') && mount.mountPath == ''/var/run/secrets/kubernetes.io/serviceaccount'' && mount.readOnly == true)'
+      message: Only the injected read-only ServiceAccount volume mount is permitted.
+    - expression: '!has(object.spec.template.spec.containers[0].env) && !has(object.spec.template.spec.containers[0].envFrom)'
+      message: Environment overrides are forbidden.
+    - expression: has(object.spec.template.spec.securityContext.runAsNonRoot) && object.spec.template.spec.securityContext.runAsNonRoot == true && object.spec.template.spec.securityContext.seccompProfile.type == 'RuntimeDefault'
+      message: The Pod must use the restricted non-root security context.
+    - expression: has(object.spec.template.spec.containers[0].securityContext.allowPrivilegeEscalation) && object.spec.template.spec.containers[0].securityContext.allowPrivilegeEscalation == false && has(object.spec.template.spec.containers[0].securityContext.privileged) && object.spec.template.spec.containers[0].securityContext.privileged == false && object.spec.template.spec.containers[0].securityContext.capabilities.drop == ['ALL'] && object.spec.template.spec.containers[0].securityContext.readOnlyRootFilesystem == true
+      message: The container must retain the fixed restricted security context.
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: stage-02-job-shape
+  labels:
+    lab.vuln-mlops/stage: "02"
+spec:
+  policyName: stage-02-job-shape
+  validationActions: [Deny, Audit]

@@ -1,0 +1,21 @@
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata: {name: stage-04-runtime-builder-only}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - {apiGroups: [apps], apiVersions: [v1], operations: [CREATE, UPDATE], resources: [deployments], scope: Namespaced}
+  matchConditions:
+    - {name: controller-only, expression: "request.namespace == 'stage-04-gitops' && request.userInfo.username == 'system:serviceaccount:stage-04-gitops:argocd-application-controller'"}
+  validations:
+    - {expression: "object.metadata.name == 'runtime-builder'", message: "Argo CD may reconcile only runtime-builder."}
+    - {expression: "object.spec.template.spec.containers.size() == 1 && object.spec.template.spec.containers[0].name == 'runtime-builder'", message: "The runtime-builder container shape is fixed."}
+    - {expression: "!has(object.spec.template.spec.hostNetwork) && !has(object.spec.template.spec.hostPID) && !has(object.spec.template.spec.hostIPC)", message: "Host namespaces are forbidden."}
+    - {expression: "!has(object.spec.template.spec.volumes) || object.spec.template.spec.volumes.all(v, !has(v.hostPath))", message: "hostPath is forbidden in Stage 4."}
+    - {expression: "object.spec.template.spec.containers.all(c, !has(c.securityContext.privileged) || c.securityContext.privileged == false)", message: "Privileged containers are forbidden."}
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata: {name: stage-04-runtime-builder-only}
+spec: {policyName: stage-04-runtime-builder-only, validationActions: [Deny, Audit]}

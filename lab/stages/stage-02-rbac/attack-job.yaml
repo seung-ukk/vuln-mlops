@@ -1,0 +1,48 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: stage-02-secret-reader
+  namespace: stage-02-rbac
+  labels:
+    lab.vuln-mlops/stage: "02"
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 300
+  template:
+    metadata:
+      labels:
+        lab.vuln-mlops/stage: "02"
+    spec:
+      serviceAccountName: monitoring-runner
+      automountServiceAccountToken: true
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: reader
+          image: registry.k8s.io/kubectl:v1.37.0@sha256:5ed410ebac5dc976cc717098994dcdb29bbbd38f6bd65f582311f5be4ba719cf
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/kubectl"]
+          args:
+            - get
+            - secret
+            - stage-02-flag
+            - --namespace=stage-02-rbac
+            - --output=jsonpath={.data.flag}
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            privileged: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]

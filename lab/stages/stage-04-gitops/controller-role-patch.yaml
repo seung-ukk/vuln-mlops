@@ -1,0 +1,15 @@
+- op: replace
+  path: /rules
+  value:
+    # Argo CD's dynamic cluster cache discovers every namespaced API resource. Read
+    # wildcard is required for comparison; all mutation remains separately narrowed.
+    - apiGroups: ["*"]
+      resources: ["*"]
+      verbs: [get, list, watch]
+    - apiGroups: [argoproj.io]
+      resources: [applications, applications/status, appprojects]
+      verbs: [get, list, watch, update, patch]
+    - apiGroups: [apps]
+      resources: [deployments]
+      resourceNames: [runtime-builder]
+      verbs: [get, patch, update]

@@ -1,0 +1,46 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: default-deny, namespace: stage-03-monitoring}
+spec: {podSelector: {}, policyTypes: [Ingress, Egress]}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: monitoring-flows, namespace: stage-03-monitoring}
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: stage-02-rbac}}
+          podSelector: {matchLabels: {lab.vuln-mlops/role: stage-03-client}}
+      ports: [{protocol: TCP, port: 3000}, {protocol: TCP, port: 8080}]
+    - from:
+        - podSelector: {matchLabels: {app: prometheus}}
+        - podSelector: {matchLabels: {app: grafana}}
+      ports: [{protocol: TCP, port: 8080}, {protocol: TCP, port: 9090}]
+  egress:
+    - to:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: kube-system}}
+      ports: [{protocol: UDP, port: 53}, {protocol: TCP, port: 53}]
+    - to: [{podSelector: {matchLabels: {app: credential-broker}}}]
+      ports: [{protocol: TCP, port: 8080}]
+    - to: [{podSelector: {matchLabels: {app: prometheus}}}]
+      ports: [{protocol: TCP, port: 9090}]
+    - to: [{ipBlock: {cidr: 10.96.0.1/32}}]
+      ports: [{protocol: TCP, port: 443}]
+    - to: [{ipBlock: {cidr: 172.16.0.0/12}}]
+      ports: [{protocol: TCP, port: 6443}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: stage-03-client-egress, namespace: stage-02-rbac}
+spec:
+  podSelector: {matchLabels: {lab.vuln-mlops/role: stage-03-client}}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: kube-system}}
+      ports: [{protocol: UDP, port: 53}, {protocol: TCP, port: 53}]
+    - to:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: stage-03-monitoring}}
+      ports: [{protocol: TCP, port: 3000}, {protocol: TCP, port: 8080}]

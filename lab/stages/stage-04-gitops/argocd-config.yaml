@@ -1,0 +1,53 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: stage4-repository
+  namespace: stage-04-gitops
+  labels: {argocd.argoproj.io/secret-type: repository}
+type: Opaque
+stringData:
+  type: git
+  url: http://gitea.stage-04-gitops.svc:3000/stage3-lab-writer/vuln-mlops-gitops.git
+  username: stage3-lab-writer
+  password: SYNTHETIC_STAGE3_GIT_TOKEN
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: stage4-cluster
+  namespace: stage-04-gitops
+  labels: {argocd.argoproj.io/secret-type: cluster}
+type: Opaque
+stringData:
+  name: stage4-in-cluster
+  server: https://kubernetes.default.svc
+  namespaces: stage-04-gitops
+  config: '{"tlsClientConfig":{"insecure":false}}'
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata: {name: runtime-builder, namespace: stage-04-gitops}
+spec:
+  sourceRepos: ["http://gitea.stage-04-gitops.svc:3000/stage3-lab-writer/vuln-mlops-gitops.git"]
+  destinations: [{server: "https://kubernetes.default.svc", namespace: stage-04-gitops}]
+  namespaceResourceWhitelist: [{group: apps, kind: Deployment}]
+  namespaceResourceBlacklist:
+    - {group: "", kind: Secret}
+    - {group: "", kind: ServiceAccount}
+    - {group: rbac.authorization.k8s.io, kind: Role}
+    - {group: rbac.authorization.k8s.io, kind: RoleBinding}
+  clusterResourceWhitelist: []
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata: {name: runtime-builder, namespace: stage-04-gitops}
+spec:
+  project: runtime-builder
+  source:
+    repoURL: http://gitea.stage-04-gitops.svc:3000/stage3-lab-writer/vuln-mlops-gitops.git
+    targetRevision: stage4-lab
+    path: runtime-builder
+  destination: {server: "https://kubernetes.default.svc", namespace: stage-04-gitops}
+  syncPolicy:
+    automated: {prune: false, selfHeal: true, allowEmpty: false}
+    syncOptions: ["CreateNamespace=false", "ServerSideApply=true"]

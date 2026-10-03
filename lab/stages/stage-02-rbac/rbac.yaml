@@ -1,0 +1,90 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: stage-02-modelgate-self-review
+  labels:
+    lab.vuln-mlops/stage: "02"
+rules:
+  - apiGroups: ["authorization.k8s.io"]
+    resources: ["selfsubjectrulesreviews"]
+    verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: stage-02-modelgate-self-review
+  labels:
+    lab.vuln-mlops/stage: "02"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: stage-02-modelgate-self-review
+subjects:
+  - kind: ServiceAccount
+    name: modelgate
+    namespace: modelgate-lab
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: stage-02-job-submitter
+  namespace: stage-02-rbac
+  labels:
+    lab.vuln-mlops/stage: "02"
+rules:
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["create", "get", "watch"]
+  # The fixed Job writes the synthetic proof to stdout. These permissions allow the
+  # compromised identity to find that Pod and read its log without exec/attach.
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: stage-02-modelgate-job-submitter
+  namespace: stage-02-rbac
+  labels:
+    lab.vuln-mlops/stage: "02"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: stage-02-job-submitter
+subjects:
+  - kind: ServiceAccount
+    name: modelgate
+    namespace: modelgate-lab
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: stage-02-flag-reader
+  namespace: stage-02-rbac
+  labels:
+    lab.vuln-mlops/stage: "02"
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["stage-02-flag"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: stage-02-monitoring-runner-flag-reader
+  namespace: stage-02-rbac
+  labels:
+    lab.vuln-mlops/stage: "0"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: stage-02-flag-reader
+subjects:
+  - kind: ServiceAccount
+    name: monitoring-runner
+    namespace: stage-02-rbac

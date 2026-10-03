@@ -1,0 +1,30 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: stage-04-gitops
+resources:
+  - namespace.yaml
+  - vendor/application-crd-v3.5.3.yaml
+  - vendor/appproject-crd-v3.5.3.yaml
+  - vendor/applicationset-crd-v3.5.3.yaml
+  - vendor/argocd-namespace-install-v3.5.3.yaml
+  - git-server.yaml
+  - runtime-builder-base.yaml
+  - argocd-config.yaml
+  - admission-policy.yaml
+  - network-policy.yaml
+patches:
+  - target: {group: rbac.authorization.k8s.io, version: v1, kind: Role, name: argocd-application-controller}
+    path: controller-role-patch.yaml
+  - target: {kind: Deployment, name: argocd-applicationset-controller}
+    patch: |-
+      - {op: replace, path: /spec/replicas, value: 0}
+  - target: {kind: Deployment, name: argocd-dex-server}
+    patch: |-
+      - {op: replace, path: /spec/replicas, value: 0}
+  - target: {kind: Deployment, name: argocd-notifications-controller}
+    patch: |-
+      - {op: replace, path: /spec/replicas, value: 0}
+images:
+  - name: quay.io/argoproj/argocd
+    newName: quay.io/argoproj/argocd
+    newTag: v3.5.3@sha256:dd3f47d5a5e4da563a7a398506e892481b358a7cec50abdf320c71aa55904bfa
