@@ -1,0 +1,38 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: runtime-builder
+  namespace: stage-05-runtime
+  labels: {lab.vuln-mlops/stage: "05"}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: runtime-builder}}
+  template:
+    metadata: {labels: {app: runtime-builder}}
+    spec:
+      automountServiceAccountToken: false
+      nodeSelector: {lab.vuln-mlops/node-role: escape}
+      tolerations:
+        - {key: lab.vuln-mlops/escape, operator: Equal, value: "true", effect: NoSchedule}
+      securityContext: {runAsUser: 0, runAsGroup: 0, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: runtime-builder
+          image: debian:bookworm-slim@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251
+          command: [sleep, infinity]
+          env:
+            - {name: STAGE4_MODE, value: baseline}
+            - {name: STAGE5_MODE, value: socket-present}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          volumeMounts:
+            - {name: runtime-socket, mountPath: /run/stage5/containerd.sock}
+            - {name: runtime-client, mountPath: /usr/local/bin/crictl, readOnly: true}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: runtime-socket
+          hostPath: {path: /run/containerd/containerd.sock, type: Socket}
+        - name: runtime-client
+          hostPath: {path: /usr/local/bin/crictl, type: File}
+        - {name: tmp, emptyDir: {}}
