@@ -19,10 +19,10 @@
 | --- | --- | --- | --- | --- |
 | 1A SSRF | 외부 HTTP | Public API -> internal service | 내부 canary 증거 | 구현됨 |
 | 1B RCE | 외부 HTTP + model bundle | Model data -> validator process | non-root Pod 실행 | 구현됨 |
-| 2 RBAC | `modelgate` SA | Identity -> workload -> higher SA | `monitoring-runner` | 다음 구현 |
-| 3 Monitoring | monitoring identity | topology/datasource trust | 제한된 Git credential | 계획 |
-| 4 GitOps | Git credential | Git change -> Argo reconciliation | `runtime-builder` 제어 | 계획 |
-| 5 Runtime | runtime workload | container -> runtime -> node | escape worker node | 계획 |
+| 2 RBAC | `modelgate` SA | Identity -> workload -> higher SA | `monitoring-runner` | 구현됨 |
+| 3 Monitoring | monitoring identity | topology/datasource trust | 제한된 Git credential | 구현됨 |
+| 4 GitOps | Git credential | Git change -> Argo reconciliation | `runtime-builder` 제어 | 구현됨 |
+| 5 Runtime | runtime workload | container -> runtime -> node | escape worker node | 구현됨 |
 | 6 CSI/IAM | node/CSI trust | Kubernetes -> AWS storage | Final Flag | 계획 |
 
 ## Stage 1A: SSRF
@@ -190,8 +190,8 @@
 
 ### Output identity
 
-- runtime socket이 이미 mount된 `runtime-builder` container execution
-- Stage 5 전용 namespace 접근
+- 기존 `runtime-builder`의 허용된 실행 필드 제어
+- Stage 5에서 runtime socket 경계를 추가할 수 있는 workload control plane
 
 ### Success evidence
 
@@ -205,6 +205,18 @@
 - 기존 runtime-builder 이외 workload 변경 거부
 - 다른 Argo Project, repository, cluster destination 접근 거부
 - Argo CD admin token 및 cluster-admin 사용 금지
+
+### Implemented permission shape
+
+- repository credential은 synthetic이며 `stage4-lab` branch와 `runtime-builder/` path만
+  pre-receive hook으로 허용한다.
+- AppProject는 단일 repository, 단일 namespace, `apps/Deployment`만 허용한다.
+- Argo CD controller의 mutation은 이름이 `runtime-builder`인 Deployment의
+  `update/patch`로 제한한다.
+- controller의 namespaced dynamic cache에는 API discovery와 desired/live diff를 위해
+  resource wildcard `get/list/watch`가 필요하다. destination cluster Secret은
+  `stage-04-gitops` namespace만 허용하며 wildcard rule에는 mutation verb가 없다.
+- Stage 4에는 runtime socket, hostPath, privileged workload를 추가하지 않는다.
 
 ## Stage 5: Runtime Socket -> Worker Node
 
@@ -237,6 +249,23 @@
 - Node IAM으로 Final Flag storage 직접 접근 거부
 - control-plane node 접근 불가
 - 다른 worker node로 lateral movement 거부
+
+### Implemented permission shape
+
+- `runtime-builder`는 `lab.vuln-mlops/node-role=escape` label과 전용 taint를 가진
+  worker에만 배치하며, containerd socket은 이 Pod 하나에만 mount한다.
+- Stage 5 namespace는 hostPath 때문에 privileged Pod Security level을 사용하지만,
+  ValidatingAdmissionPolicy가 Deployment 이름, image digest, node selector, toleration,
+  socket/client path, volume/container shape와 non-privileged security context를 고정한다.
+- Argo CD controller는 기존 `runtime-builder`의 `update/patch`만 수행할 수 있고
+  workload create/delete, 다른 resourceName 변경, Secret/RBAC 변경은 할 수 없다.
+- 로컬 acceptance에서는 node의 reviewed `crictl` binary를 read-only로 mount한다.
+  runtime socket을 통해 기존 Pod sandbox에 다음 container attempt를 주입하고,
+  node의 synthetic proof만 해당 Pod의 기존 `tmp` emptyDir로 복사한다.
+- proof는 escape kind worker에만 존재하며 manifest, Kubernetes Secret, control-plane,
+  AWS identity에는 저장하지 않는다. 성공 증거는 containerd CRI operation log와
+  namespace-scoped Kubernetes exec audit event로 확인한다.
+- Node IAM, CSI, AWS resource와 Final Flag는 Stage 5에 포함하지 않는다.
 
 ## Stage 6: CSI / AWS Storage / IAM Pivot
 
@@ -276,4 +305,3 @@
 3. 더 높은 권한을 추가할 때 해당 권한이 필요한 정확한 API call을 기록한다.
 4. `*` resource 또는 verb를 사용하면 더 좁힐 수 없는 이유를 문서화한다.
 5. Contract 검증 후 다음 Stage 상태를 갱신한다.
-

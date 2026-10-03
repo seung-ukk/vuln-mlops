@@ -115,7 +115,7 @@ EBS/EFS resource에만 접근하고 Final Flag를 얻는다. 일반 application 
 ### 로컬 개발
 
 - Docker Compose: Stage 1 기능 및 PoC
-- kind: Stage 1~4의 Kubernetes, RBAC, NetworkPolicy, Admission, GitOps 검증
+- kind: Stage 2~5의 Kubernetes, RBAC, NetworkPolicy, Admission, GitOps/runtime 검증
 - 로컬에서는 AWS IAM/CSI 동작을 모의하되 실제 권한 성공으로 간주하지 않는다.
 
 ### AWS 통합 환경
@@ -130,7 +130,7 @@ EBS/EFS resource에만 접근하고 Final Flag를 얻는다. 일반 application 
 - 태그 기반 IAM resource restriction
 - CloudTrail, EKS audit log 및 exercise log 보존
 
-Terraform은 Stage 1~4의 로컬 공격 체인이 안정화된 뒤 작성한다. Kubernetes manifest,
+Terraform은 Stage 1~5의 로컬 공격 체인이 안정화된 뒤 작성한다. Kubernetes manifest,
 Helm values, Stage contract 테스트를 Terraform 내부 문자열로 만들지 않는다.
 
 ## 6. 계획된 저장소 구조
@@ -204,4 +204,3 @@ vuln-mlops/
 - Terraform으로 생성 및 삭제가 반복 가능하다.
 - 실습 계정 밖의 AWS resource에 대한 접근이 IAM으로 거부된다.
 - 팀원이 operator 도움 없이 실행 가능한 runbook과 증거 수집 절차가 있다.
-
