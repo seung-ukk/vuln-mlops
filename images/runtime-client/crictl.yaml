@@ -1,0 +1,5 @@
+runtime-endpoint: unix:///run/stage5/containerd.sock
+image-endpoint: unix:///run/stage5/containerd.sock
+timeout: 10
+debug: false
+pull-image-on-create: false

@@ -7,11 +7,12 @@
 
 ## 현재 기준점
 
-- Branch: `codex/stage2-5-checkpoint`
-- Latest verified implementation commit: `28bba29 feat(lab): add stage 5 runtime socket chain`
+- Branch: `codex/terraform-eks-foundation`
+- Latest merged commit: `ef495f1 Merge pull request #1 from seung-ukk/codex/stage2-5-checkpoint`
 - Repository: `https://github.com/seung-ukk/vuln-mlops`
 - Container: `ghcr.io/seung-ukk/vuln-mlops`
-- 현재 작업 트리: Stage 2~5 구현을 Stage별 커밋으로 보존했으며 Terraform/EKS는 미구현
+- 현재 작업 트리: EKS runtime-client image와 GHCR build pipeline 구현 및 로컬 검증 완료,
+  미커밋
 
 ## 완료된 작업
 
@@ -90,6 +91,39 @@
 - containerd CRI operation ID와 namespace-scoped Kubernetes exec audit evidence 검증
 - 다른 workload/hostPath/node/privileged 변경과 create/delete shortcut 거부
 
+### Terraform/EKS foundation
+
+- Terraform 1.16.x와 AWS provider 6.62.0 고정
+- VPC module 6.7.3, EKS module 21.26.0, EKS Pod Identity module 2.9.0 고정
+- 서울 리전 기본값과 2개 AZ public/private subnet 구성
+- private worker와 비용을 제한한 단일 NAT gateway 구성
+- EKS 1.36 기본값, 1.37 opt-in 및 API-only Access Entry 구성
+- public EKS endpoint를 명시적 operator IPv4 `/32`로 제한
+- root/creator 대신 별도 cluster operator role에 Kubernetes admin Access Entry 부여
+- EKS control-plane 다섯 로그 유형과 CloudWatch 보존 설정
+- CoreDNS, kube-proxy, VPC CNI, Pod Identity Agent 관리형 add-on 구성
+- VPC CNI NetworkPolicy strict mode와 CNI 권한의 Pod Identity 분리
+- strict mode에서 CoreDNS가 먼저 격리되지 않도록 foundation → CoreDNS 전용 정책 →
+  CoreDNS add-on을 순서대로 적용하는 `bootstrap.sh` 구성
+- 부트스트랩의 명시적 non-root profile, saved plan, 중단 후 재실행, 최종 no-drift
+  안전장치 구성
+- general/escape managed node group, label/taint, escape 1-node 상한 구성
+- EKS 모듈의 공용 node security group을 비활성화하고 general/escape 전용 security
+  group과 최소 control-plane/DNS/HTTPS 규칙으로 Stage 5 노드 lateral 경계 구성
+- 고정된 짧은 node IAM role 이름과 불필요한 IRSA/OIDC provider 비활성화
+- IMDSv2 강제, hop limit 1, instance metadata tag 비활성화
+- Node IAM에 Stage 6 storage/CSI 권한을 추가하지 않는 shortcut 테스트
+- 기존 EKS overlay의 IMDS 및 private-network wildcard 허용 제거
+
+### EKS Stage 5 runtime-client image
+
+- EKS 1.36과 맞춘 공식 `crictl` v1.36.0 archive와 공식 SHA-256 고정
+- digest 고정 Debian 최종 이미지와 BuildKit checksum 검증 구성
+- `/run/stage5/containerd.sock`만 기본 runtime/image endpoint로 지정
+- GHCR `vuln-mlops-runtime-client` 전용 amd64 build/publish job 구성
+- pull request에서는 build-only, main/tag push에서만 package publish
+- 로컬 이미지에서 `crictl version v1.36.0`, 설정 파일, curl/wget 부재 검증
+
 ### Delivery
 
 - GitHub Actions Python test
@@ -100,9 +134,29 @@
 
 ## 최근 검증 결과
 
-- Python tests: `50 passed`
+- Python tests: `70 passed`
 - Python compileall: passed
 - Docker Compose config validation: passed
+- Terraform format: passed
+- Terraform init with pinned provider/modules: passed
+- Terraform validate: passed
+- Terraform AWS plan: security group 분리 후 `73 to add, 0 to change, 0 to destroy`
+  계획 생성 및 경계 검토 완료
+- Terraform plan에서 공용 module node security group과 `ingress_nodes_ephemeral` 부재,
+  general/escape/control-plane 전용 security group 및 제한 규칙 확인
+- Terraform AWS apply: VPC, EKS control plane, node group 2개, 관리형 add-on 생성 완료;
+  최초 CoreDNS readiness timeout은 strict mode bootstrap policy 누락으로 발생
+- CoreDNS 전용 bootstrap NetworkPolicy 적용 후 Pod 2개 `1/1 Running`, add-on `ACTIVE`
+- 최초 timeout으로 남은 CoreDNS state taint 해제 완료
+- KMS key administrator를 계정 principal로 고정해 Terraform 실행자 변경 drift 제거
+- 복구 후 Terraform plan: `No changes`
+- 기존 AWS cluster에서 `bootstrap.sh --auto-approve` 재실행 검증: foundation phase를
+  안전하게 건너뛰고 node 3대 Ready, CoreDNS 정책 재적용, rollout, add-on `ACTIVE`,
+  최종 Terraform `No changes` 확인
+- 실제 EKS node 3대 `Ready`: general 2대, escape 1대와 escape `NoSchedule` taint 확인
+- 실제 EC2 ENI: general node는 general SG만, escape node는 escape SG만 연결됨을 확인
+- EKS Stage 1 overlay Kustomize render: passed
+- Stage 5 EKS runtime-client local image build and runtime checks: passed
 - Stage 2 Kustomize render: passed
 - Stage 2 kind acceptance: passed (Kubernetes 1.37.0)
 - Stage 2 intended Job -> `monitoring-runner` -> Flag 획득: passed
@@ -141,14 +195,17 @@
 | Stage 4 Argo CD | 완료 | 제한된 Git change, reconciliation, shortcut denial 검증됨 |
 | Stage 5 Runtime | 완료 | escape worker, CRI proof, shortcut denial, audit 검증됨 |
 | Stage 6 CSI/IAM | 미구현 | AWS threat model과 tag policy 필요 |
-| Terraform/EKS | 미구현 | Stage 1~5 one-command 배포 기반 구현 필요 |
+| Terraform/EKS | 구현 중 | bootstrap 재실행 및 runtime-client local build 완료, GHCR publish/digest pin 필요 |
 
-## 다음 작업: Terraform/EKS Stage 1~5 배포 기반
+## 다음 작업: Terraform/EKS plan 및 Stage 1~5 배포 조합
 
-Stage 1~5 로컬 공격 체인과 shortcut denial은 완료되었다. 다음 작업은 깨끗한 전용
-AWS 계정에서 한 번의 명령으로 Stage 1~5 실습 환경을 생성/검증/제거할 수 있도록
-Terraform/EKS 기반과 배포 orchestration을 구현하는 것이다. Stage 6 CSI/IAM은 별도
-AWS threat model과 tag boundary를 확정한 뒤 추가한다.
+Terraform foundation의 첫 AWS apply, node/ENI 경계, strict NetworkPolicy와 CoreDNS 복구,
+최종 no-drift까지 확인했다. `bootstrap.sh`는 clean deployment에서 CoreDNS add-on보다
+bootstrap NetworkPolicy를 먼저 적용하도록 두 단계로 구성했고, 현재 cluster에서 중단 후
+재실행 경로를 검증했다. 다음 작업은 비용/시간을 정해 destroy 후 clean bootstrap과 second
+apply 반복성을 검증하거나, 그 검증을 보류하고 Stage 1~5 manifest composition 및 acceptance
+orchestration을 먼저 추가하는 것이다. Stage 6 CSI/IAM은 별도 AWS threat model과 tag
+boundary를 확정한 뒤 추가한다.
 
 ### Terraform 시작 전 유지 조건
 
@@ -163,7 +220,7 @@ AWS threat model과 tag boundary를 확정한 뒤 추가한다.
 - Flag 발급/채점 서비스의 최초 도입 시점
 - 전체 lab orchestration을 이 저장소에 유지할지 별도 저장소로 분리할 시점
 - Stage 1~5 배포 후 자동 acceptance를 단일 스크립트로 묶을 범위
-- 로컬에서 mount한 `crictl`을 포함하는 EKS용 runtime-client image의 build/publish 위치
+- runtime-client 최초 GHCR 게시 후 고정할 image manifest digest
 
 결정 전 기본 방향:
 
@@ -174,13 +231,15 @@ AWS threat model과 tag boundary를 확정한 뒤 추가한다.
 - Stage 4는 Argo CD 3.5.3과 Gitea 1.27.3-rootless를 digest로 고정한다.
 - Stage 4 read wildcard는 namespaced dynamic cache의 read-only API에만 사용한다.
 - Stage 5 로컬 기준은 kind escape worker와 containerd CRI 주입 경로로 확정했다.
-- EKS에서는 host binary mount 대신 reviewed `crictl`을 포함한 digest-pinned
-  runtime-client image를 사용한다.
+- EKS에서는 `images/runtime-client`가 만드는 reviewed `crictl` 이미지를 사용한다.
+  최초 GHCR 게시 후 manifest digest를 고정하고 host binary mount를 제거한다.
 
 ## 현재 미완료 사항
 
-- Terraform VPC/EKS, general/escape managed node group, ECR, 배포/삭제 orchestration은
-  아직 구현하지 않았다.
+- Terraform VPC/EKS와 general/escape managed node group의 첫 AWS apply는 완료했지만,
+  destroy 후 clean second apply 반복 검증은 아직 수행하지 않았다.
+- 원격 state/bootstrap, ECR, public ingress, DNS/TLS, 배포/삭제 orchestration은 아직
+  구현하지 않았다. 첫 개인 계정 검증은 계정별 local state로 시작한다.
 - Stage 6 CSI/AWS Storage/IAM pivot과 AWS tag/IAM policy boundary는 아직 설계·구현하지
   않았다.
 - Stage 1부터 Stage 5까지를 한 명령으로 배포하고 전체 체인을 연속 실행하는 acceptance
@@ -192,14 +251,16 @@ AWS threat model과 tag boundary를 확정한 뒤 추가한다.
   end-to-end smoke는 아직 실행하지 않았다.
 - 배포별 무작위 Flag 발급, hash 기반 채점, reset/reissue 서비스는 없다. 현재 proof와
   credential은 local lab용 placeholder/synthetic 값이다.
-- EKS용 runtime-client image와 build/publish pipeline은 없다. 로컬 Stage 5는 kind node의
-  reviewed `crictl` binary를 read-only mount한다.
-- Stage 2~5 체크포인트 브랜치는 아직 GitHub Actions에서 검증하지 않았다. 마지막 검증은
-  로컬 test/kind acceptance이며 원격 push와 PR은 아직 수행하지 않았다.
+- EKS용 runtime-client image와 GHCR pipeline은 구현했지만 아직 원격에 게시되지 않아
+  manifest digest를 고정하지 않았다. 로컬 Stage 5는 계속 kind node의 reviewed `crictl`
+  binary를 read-only mount한다.
+- Stage 2~5 checkpoint는 PR #1로 main에 병합되었고 CI가 통과했다. Terraform
+  foundation은 local commit `f5e654c`로 보존했지만 아직 push하지 않았다. 현재
+  runtime-client 변경도 미커밋이며 GitHub Actions 결과가 없다.
 
 ## 알려진 제약과 주의사항
 
-- 현재 로컬 검증에서 해결되지 않은 실패는 없다. Python 50개, Stage 2~5 kind
+- 현재 로컬 검증에서 해결되지 않은 실패는 없다. Python 70개, Stage 2~5 kind
   acceptance, Compose/Kustomize/compile 검사가 통과했다.
 - Stage 5 namespace는 containerd socket hostPath 때문에 Pod Security `privileged` level을
   사용한다. 실제 container는 privileged가 아니지만 runtime socket 자체는 사실상 node
@@ -215,8 +276,21 @@ AWS threat model과 tag boundary를 확정한 뒤 추가한다.
   production resource로 교체하지 않는다.
 - Stage 4 vendor CRD/install manifest가 저장소에 포함되어 변경량이 크다. checkpoint
   검토 시 upstream version과 digest를 별도로 확인한다.
-- Stage 2~5는 `codex/stage2-5-checkpoint` 브랜치의 분리된 커밋으로 보존했다. 원격에
-  push하기 전에는 이 로컬 브랜치를 삭제하거나 강제로 재설정하지 않는다.
+- 현재 AWS CLI는 개인 계정의 임시 bootstrap IAM 사용자 profile을 사용하고, Kubernetes
+  접근은 별도 operator role과 Access Entry를 사용한다. bootstrap 사용자의
+  AdministratorAccess는 개인 계정 검증 후 축소/제거하며 팀 계정에서는 IAM Identity
+  Center 또는 임시 Terraform deployment role을 사용한다.
+- Terraform plan에는 EKS control plane, EC2 worker 3대, NAT gateway, public IPv4,
+  CloudWatch 로그처럼 비용이 발생하는 리소스가 포함될 예정이므로 apply 전 검토한다.
+- 최초 생성한 `personal.tfplan`은 공용 node security group 규칙을 포함하므로 절대 apply하지
+  않는다. 코드 변경 후 같은 파일명으로 새 plan을 생성하기 전까지 폐기된 계획으로 본다.
+- 첫 `personal-isolated.tfplan` 재계획은 `Invalid count argument`로 실패했으므로 출력 파일이
+  존재하더라도 유효한 승인 대상이 아니다. EKS module-level `depends_on` 제거 후 새 이름으로
+  plan을 다시 생성한다.
+- VPC CNI strict mode의 clean apply는 `infra/terraform/bootstrap.sh`로 실행해야 한다.
+  Terraform 단독 one-shot apply는 CoreDNS 정책보다 add-on을 먼저 만들 수 있어 사용하지
+  않는다. 기존 cluster에서 resume 경로는 검증했지만 destroy 후 완전한 clean bootstrap과
+  second apply 반복 검증은 아직 수행하지 않았다.
 
 ## Stage 2~5 checkpoint 보존 기록
 
