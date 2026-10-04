@@ -32,8 +32,17 @@ The overlay composes the Stage 2 controls but deliberately excludes its
 fixes the Kubernetes Service CIDR at `172.20.0.0/16`, and the EKS-only patches replace
 kind's API destinations with the single `172.20.0.1/32` Service IP on TCP 443. Current
 control-plane ENI and public endpoint addresses are not committed, so the same
-manifests remain usable in the personal and team accounts. Stage 3-5 composition is
-still pending.
+manifests remain usable in the personal and team accounts.
+
+Stage 3 is also composed into this overlay, while its temporary `attack-client.yaml`
+acceptance harness remains excluded. The common monitoring policy permits only DNS
+and the internal Prometheus/credential-broker flows. A separate policy selects only
+the Prometheus Pod and grants Kubernetes discovery access to `172.20.0.1/32` on TCP
+443; Grafana and the credential broker neither receive that network path nor mount a
+ServiceAccount token. All Stage 3 Services remain cluster-internal. AWS acceptance
+used an operator-created temporary client Pod to exercise the datasource and broker
+chain and removed it afterward; a participant-facing handoff that does not require
+operator `exec` is still pending. Stage 4-5 composition is also still pending.
 
 `coredns-network-policy.yaml` is the bootstrap exception required by VPC CNI strict
 mode. It selects only the managed CoreDNS Pods and permits DNS, Kubernetes API, probe,

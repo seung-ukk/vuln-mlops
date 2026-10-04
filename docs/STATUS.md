@@ -11,10 +11,11 @@
 - Latest merged commit: `a2de860 Merge pull request #3 from seung-ukk/codex/eks-runtime-client-pin`
 - Repository: `https://github.com/seung-ukk/vuln-mlops`
 - Container: `ghcr.io/seung-ukk/vuln-mlops`
-- 현재 작업 트리: 게시된 ModelGate OCI digest를 EKS Stage 1 overlay에 고정하고 개인
-  AWS 계정 EKS에서 readiness/health/RCE/redirect SSRF를 검증했으며, EKS 전용 synthetic
-  SSRF canary와 제한된 NetworkPolicy 경로를 추가해 검증 후 commit `a21c1c8`로 보존;
-  Stage 2 EKS composition과 API Service `/32` egress를 로컬 검증 중, 미커밋
+- 현재 작업 트리: Stage 1 AWS attack path는 commit `a21c1c8`, Stage 2 EKS RBAC chain은
+  commit `0314462`로 보존하고 원격 branch에 push 완료. Stage 3 monitoring stack을 통합
+  EKS overlay에 추가하고 Prometheus 전용 API Service `/32` egress, probes/resources,
+  datasource discovery, synthetic credential exchange와 shortcut denial을 실제 AWS에서
+  검증 완료했으며 커밋 전 상태
 
 ## 완료된 작업
 
@@ -198,6 +199,31 @@
 - CloudWatch EKS audit에서 `monitoring-runner`의 `stage-02-flag` Secret get `200` 확인
 - Stage 2 EKS intended path, shortcut denial, NetworkPolicy, node placement, audit evidence 완료
 
+### EKS Stage 3 composition
+
+- 통합 EKS overlay가 Stage 1~3 control resources를 함께 렌더링하며 임시
+  `attack-client.yaml`은 intended boundary-crossing acceptance 시에만 별도 생성
+- kind 전용 `10.96.0.1/32`, `172.16.0.0/12:6443` API 목적지를 Stage 3 공통
+  NetworkPolicy에서 제거
+- Prometheus Pod만 `172.20.0.1/32:443`에 접근하는 별도 EKS NetworkPolicy 추가
+- Grafana와 credential broker는 ServiceAccount token을 mount하지 않고 Kubernetes API
+  egress도 받지 않으며, 모든 Stage 3 Service는 cluster-internal 유지
+- Prometheus, Grafana, credential broker에 readiness/liveness probe와 requests/limits 추가
+- Prometheus 3.14.0, Grafana 13.2.2, nginx-unprivileged 1.29.1 pinned OCI index가 모두
+  `linux/amd64` manifest를 제공함을 registry에서 확인
+- 실제 EKS apply와 세 Deployment rollout 성공, 모두 general node에서 `1/1 Running`,
+  restart 0 및 ClusterIP-only Service 유지 확인
+- Prometheus에만 projected ServiceAccount token이 주입되고 Grafana와 credential broker에는
+  token volume이 없음을 실제 Pod에서 확인
+- `monitoring-runner` client가 Grafana datasource proxy를 통해 topology와 opaque credential
+  reference만 발견하고 broker에서 범위 제한 synthetic Git credential과 Stage 3 Flag 교환
+- 임의 credential reference는 `404`, Prometheus TCP 9090 직접 접근은 NetworkPolicy timeout,
+  Secret/workload/RBAC/exec/node 권한은 모두 거부
+- CloudWatch EKS audit에서 Prometheus SA의 namespace 한정 services/endpoints/pods watch
+  `200`만 확인했으며 acceptance client는 검증 후 삭제
+- 현재 client는 운영자가 생성하고 `exec`하는 acceptance harness다. 팀 실습 전에는
+  operator `exec` 없이 Stage 2 output identity에서 이어지는 참가자용 handoff가 필요
+
 ### Delivery
 
 - GitHub Actions Python test
@@ -208,7 +234,7 @@
 
 ## 최근 검증 결과
 
-- Python tests: `85 passed`
+- Python tests: `87 passed`
 - Python compileall: passed
 - Docker Compose config validation: passed
 - Terraform format: passed
@@ -234,6 +260,13 @@
 - EKS Stage 1 canary Kustomize patch/render 및 digest 치환: passed
 - EKS Stage 2 composition/RBAC/API egress 계약 테스트 31개: passed
 - Stage 1+2 통합 EKS Kustomize render: passed
+- Stage 1~3 통합 EKS Kustomize render: passed
+- EKS Stage 3 composition/Prometheus-only API egress 계약 테스트: passed
+- Stage 3 pinned image `linux/amd64` availability: verified
+- 실제 EKS Stage 3 rollout: passed (세 Pod `1/1 Running`, general node, restart 0)
+- 실제 EKS Grafana datasource discovery → broker credential exchange: passed
+- 실제 EKS Stage 3 arbitrary reference/direct Prometheus/RBAC/external exposure shortcuts: denied
+- 실제 EKS Stage 3 CloudWatch audit namespace-scoped discovery watch `200`: verified
 - 실제 EKS Stage 2 RBAC positive/negative matrix: passed
 - 실제 EKS Stage 2 admission shortcut 7개: denied
 - 실제 EKS Stage 2 Job → monitoring-runner → synthetic Flag: passed
@@ -291,17 +324,17 @@
 | Stage 4 Argo CD | 완료 | 제한된 Git change, reconciliation, shortcut denial 검증됨 |
 | Stage 5 Runtime | 완료 | escape worker, CRI proof, shortcut denial, audit 검증됨 |
 | Stage 6 CSI/IAM | 미구현 | AWS threat model과 tag policy 필요 |
-| Terraform/EKS | 구현 중 | Stage 1~2 AWS acceptance 완료, Stage 3 composition 필요 |
+| Terraform/EKS | 구현 중 | Stage 1~3 AWS acceptance 완료, Stage 4 composition 필요 |
 
 ## 다음 작업: Terraform/EKS plan 및 Stage 1~5 배포 조합
 
 Terraform foundation의 첫 AWS apply, node/ENI 경계, strict NetworkPolicy와 CoreDNS 복구,
 최종 no-drift까지 확인했다. `bootstrap.sh`는 clean deployment에서 CoreDNS add-on보다
 bootstrap NetworkPolicy를 먼저 적용하도록 두 단계로 구성했고, 현재 cluster에서 중단 후
-재실행 경로를 검증했다. 다음 작업은 비용/시간을 정해 destroy 후 clean bootstrap과 second
-apply 반복성을 검증하거나, 그 검증을 보류하고 Stage 1~5 manifest composition 및 acceptance
-orchestration을 먼저 추가하는 것이다. Stage 6 CSI/IAM은 별도 AWS threat model과 tag
-boundary를 확정한 뒤 추가한다.
+재실행 경로를 검증했다. Stage 1~3 AWS acceptance를 완료했다. 다음 작업은 Stage 4 GitOps
+구성을 통합 EKS overlay에 추가하고 repository/Argo reconciliation 경계를 실제 cluster에서
+검증하는 것이다. 이후 Stage 5 composition을 추가한다. Stage 6 CSI/IAM은 별도 AWS threat
+model과 tag boundary를 확정한 뒤 추가한다.
 
 ### Terraform 시작 전 유지 조건
 
@@ -339,9 +372,8 @@ boundary를 확정한 뒤 추가한다.
   않았다.
 - Stage 1부터 Stage 5까지를 한 명령으로 배포하고 전체 체인을 연속 실행하는 acceptance
   harness는 없다. 현재 Stage 2~5는 Stage별 kind smoke로 검증한다.
-- Stage 3 Kustomization은 Stage 2를 base로 포함하지 않고, Stage 4도 Stage 3을 base로
-  포함하지 않는다. Stage 5만 Stage 4 overlay를 직접 포함한다. 따라서 Stage 간 identity와
-  credential 전달 계약은 검증됐지만 Stage 2→5 전체 manifest 조합은 아직 배포 단위가 아니다.
+- Stage별 base Kustomization은 서로 독립적이며 통합 EKS overlay는 현재 Stage 1~3까지만
+  배포 단위로 조합한다. Stage 4~5 composition은 아직 추가하지 않았다.
 - Stage 1 application deployment와 Stage 2~5 overlay를 하나의 clean cluster에서 연결한
   end-to-end smoke는 아직 실행하지 않았다.
 - 배포별 무작위 Flag 발급, hash 기반 채점, reset/reissue 서비스는 없다. 현재 proof와
@@ -351,11 +383,12 @@ boundary를 확정한 뒤 추가한다.
   payload/curl 흐름을 제공해 참가자 로컬 Python 의존성과 `kubectl exec` 우회를 제거한다.
 - Stage 2~5 checkpoint는 PR #1, Terraform foundation과 runtime-client image는 PR #2,
   Stage 5 runtime-client digest pin은 PR #3으로 main에 병합되었고 CI가 통과했다. 현재
-  Stage 1 ModelGate digest pin과 AWS 배포 준비 변경은 미커밋이다.
+  branch에는 Stage 1 commit `a21c1c8`, Stage 2 commit `0314462`가 원격에 보존되었고
+  Stage 3 EKS composition과 AWS acceptance 기록은 미커밋 상태다.
 
 ## 알려진 제약과 주의사항
 
-- 현재 로컬 검증에서 해결되지 않은 실패는 없다. Python 70개, Stage 2~5 kind
+- 현재 로컬 검증에서 해결되지 않은 실패는 없다. Python 87개, Stage 2~5 kind
   acceptance, Compose/Kustomize/compile 검사가 통과했다.
 - Stage 5 namespace는 containerd socket hostPath 때문에 Pod Security `privileged` level을
   사용한다. 실제 container는 privileged가 아니지만 runtime socket 자체는 사실상 node

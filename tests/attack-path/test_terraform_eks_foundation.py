@@ -86,6 +86,38 @@ def test_eks_overlay_targets_only_the_two_stage2_api_policies() -> None:
     }
 
 
+def test_eks_overlay_composes_stage3_with_prometheus_only_api_egress() -> None:
+    overlay = eks_overlay()
+    assert "../../lab/stages/stage-03-monitoring" in overlay["resources"]
+    assert "stage-03-prometheus-api-egress.yaml" in overlay["resources"]
+
+    monitoring_patch = next(
+        item
+        for item in overlay["patches"]
+        if item["path"] == "stage-03-monitoring-flows-patch.yaml"
+    )
+    assert monitoring_patch["target"] == {
+        "group": "networking.k8s.io",
+        "version": "v1",
+        "kind": "NetworkPolicy",
+        "name": "monitoring-flows",
+        "namespace": "stage-03-monitoring",
+    }
+
+    api_policy = yaml.safe_load(
+        (ROOT / "deploy" / "eks-lab" / "stage-03-prometheus-api-egress.yaml").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert api_policy["spec"]["podSelector"]["matchLabels"] == {"app": "prometheus"}
+    assert api_policy["spec"]["egress"] == [
+        {
+            "to": [{"ipBlock": {"cidr": "172.20.0.1/32"}}],
+            "ports": [{"protocol": "TCP", "port": 443}],
+        }
+    ]
+
+
 def test_eks_foundation_has_general_and_escape_workers() -> None:
     text = terraform_text()
     assert 'general = {' in text
