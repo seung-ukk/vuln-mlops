@@ -1,0 +1,19 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: argocd-controller-api-egress
+  namespace: stage-04-gitops
+  labels:
+    lab.vuln-mlops/stage: "04"
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: argocd-application-controller
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 172.20.0.1/32
+      ports:
+        - protocol: TCP
+          port: 443

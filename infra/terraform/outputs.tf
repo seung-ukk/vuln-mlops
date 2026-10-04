@@ -18,6 +18,11 @@ output "cluster_endpoint" {
   value       = module.eks.cluster_endpoint
 }
 
+output "kubernetes_service_ip" {
+  description = "Stable Kubernetes API Service IP used by restricted workload egress policies."
+  value       = local.kubernetes_service_ip
+}
+
 output "vpc_id" {
   description = "Dedicated lab VPC."
   value       = module.vpc.vpc_id

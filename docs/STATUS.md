@@ -7,12 +7,14 @@
 
 ## 현재 기준점
 
-- Branch: `codex/eks-runtime-client-pin`
-- Latest merged commit: `00197c9 Merge pull request #2 from seung-ukk/codex/eks-stage1-5-composition`
+- Branch: `codex/eks-stage1-deploy`
+- Latest merged commit: `a2de860 Merge pull request #3 from seung-ukk/codex/eks-runtime-client-pin`
 - Repository: `https://github.com/seung-ukk/vuln-mlops`
 - Container: `ghcr.io/seung-ukk/vuln-mlops`
-- 현재 작업 트리: 게시된 runtime-client OCI digest를 Stage 5 초기/desired Deployment와
-  admission policy에 고정하고 worker host의 `crictl` binary mount 제거, 미커밋
+- 현재 작업 트리: Stage 1~4 EKS attack path와 AWS acceptance를 commit `a21c1c8`,
+  `0314462`, `1f64732`, `23ac983`으로 보존하고 원격 branch에 push 완료. Stage 5 통합 EKS
+  overlay와 escape-node synthetic proof cloud-init을 구현하고 실제 AWS에서 Terraform apply,
+  Git/Argo reconciliation, containerd CRI proof, shortcut denial, audit와 no-drift까지 검증 완료
 
 ## 완료된 작업
 
@@ -29,6 +31,10 @@
 
 - MLflow webhook redirect SSRF 경로
 - Docker-internal synthetic canary
+- EKS `stage-01-canary` restricted namespace와 ClusterIP-only synthetic canary
+- ModelGate Pod에서 정확한 namespace/Pod label/TCP 9000으로만 허용한 양방향
+  NetworkPolicy 계약
+- `compose` 또는 `eks` 고정 이름만 받으며 임의 내부 URL을 받지 않는 PoC target 선택
 - marker-only safe PoC
 - 외부 MLflow 노출 없이 ModelGate API를 통한 검증
 
@@ -127,6 +133,155 @@
   `sha256:556d3f1837edfcd0da44627a39dbe890822217c66b1beec2d31f5ff6c48a930b` 고정
 - Stage 5 초기/desired Deployment가 같은 digest를 사용하며 host `crictl` mount 제거
 
+### EKS Stage 1 deployment
+
+- ModelGate `main` OCI index digest
+  `sha256:9953d23e8102114873c3a52eaecd0a2e80d260cb0b7ee09ae348c0af3d66a244` 확인
+- EKS overlay에서 api, mlflow-registry, validator 세 컨테이너를 동일 digest로 치환
+- base 개발 tag는 유지하되 AWS 배포에서는 mutable tag 사용 금지
+- EKS 1.36 `ACTIVE`, general node 2대와 escape node 1대 `Ready` 확인
+- escape node만 `lab.vuln-mlops/escape=true:NoSchedule` taint 보유 확인
+- Stage 1 전체 manifest client dry-run 통과
+- EKS overlay에는 개인 계정 ID, cluster/operator ARN, subnet/security-group ID 및
+  credential을 넣지 않는 account-portability negative test 추가
+- 팀 계정 전환 시 별도 Terraform state/tfvars와 임시 deployment role, 승인된 operator
+  `/32`만 교체하고 Kubernetes manifest와 public GHCR digest는 재사용
+- 개인 계정 EKS에서 namespace, ServiceAccount, ClusterIP Service, Deployment,
+  NetworkPolicy 실제 apply 완료
+- ModelGate Pod `3/3 Running`, restart 0, general node 배치 및 escape taint 회피 확인
+- Deployment와 실행 container 세 개 모두 고정 OCI index digest 사용 확인
+- `kubectl port-forward`를 통한 `/healthz`와 `/readyz` 응답 확인
+- 운영자 격리 CPython 3.11.17 환경에서 MLflow 3.13.0, statsmodels 0.14.5로
+  외부 API-only marker RCE smoke 실행
+- artifact upload → model registration → validator load → UUID proof 흐름 성공,
+  `validator marker observed` 확인 후에도 Pod `3/3 Running`, restart 0 유지
+- EKS synthetic canary는 ServiceAccount token, egress, Ingress/LoadBalancer/NodePort,
+  host namespace/hostPath/runtime socket 없이 구성
+- Kustomize render에서 ModelGate→canary TCP 9000 egress 패치와 canary→ModelGate-only
+  ingress가 정확히 합성되고 canary image도 같은 OCI index digest로 치환됨을 확인
+- 개인 계정 EKS에서 public HTTPS first hop → 고정 cluster-local canary redirect SSRF가
+  `MODELGATE_INTERNAL_SSRF_PROOF`를 반환하는 intended path 확인
+- canary access log의 `/canary` 요청 출발지 `10.42.30.104`가 ModelGate Pod IP와 일치하고,
+  canary Pod는 general node에서 `1/1 Running`, restart 0임을 확인
+- 비인가 Pod의 FQDN direct-canary 시도는 VPC CNI strict-mode DNS 단계에서 timeout으로
+  거부됨을 확인
+- 테스트 Pod의 egress를 canary namespace/Pod/TCP 9000으로 명시 허용하고 DNS를 우회한
+  ClusterIP 직접 접근도 connection timeout으로 거부되어 canary ingress selector 경계 확인
+- shortcut smoke용 임시 Pod와 NetworkPolicy 삭제 완료
+
+### EKS Stage 2 composition
+
+- 기존 kind Stage 2 base와 attack Job 제외 계약을 그대로 재사용
+- 통합 EKS overlay가 Stage 1과 Stage 2 control resources를 함께 렌더링
+- Terraform Kubernetes Service CIDR을 `172.20.0.0/16`으로 명시하고 API Service IP를
+  `172.20.0.1`로 계산하는 output 추가
+- EKS overlay에서 kind 전용 `10.96.0.1/32`, `172.16.0.0/12:6443`을 제거하고
+  ModelGate와 Stage 2 Job에 `172.20.0.1/32:443`만 허용
+- 현재/개인 계정 control-plane ENI, public endpoint IP, account ID는 manifest에 넣지 않음
+- EKS 1.36 ValidatingAdmissionPolicy server dry-run: passed
+- 운영자 kubectl을 1.36.4로 맞춰 EKS 1.36.4와 client/server minor 일치 확인
+- Terraform plan/apply는 실제 resource 변경 없이 `kubernetes_service_ip=172.20.0.1`
+  output만 state에 추가
+- 실제 EKS에 Stage 2 namespace, SA, RBAC, synthetic Secret, admission, NetworkPolicy apply 완료
+- ModelGate identity의 self-review와 Stage 2 Job create는 허용되고, Secret 직접 get,
+  RoleBinding create, SA token mint, Pod exec, Node read는 거부됨을 확인
+- EKS admission이 잘못된 Job name/SA/image, privileged, hostPath/Secret volume, env override
+  7개 shortcut을 모두 거부하고 Job/Pod가 생성되지 않음을 확인
+- ModelGate identity가 fixed `stage-02-secret-reader` Job을 생성하고 EKS API Service
+  `/32:443` 경계를 통해 `monitoring-runner`로 실행해 8초 만에 exit 0 완료
+- 실행 Pod는 pinned kubectl digest, projected short-lived SA token, no env/no host mount를 유지
+- Job Pod가 general node에 배치되고 restart 0으로 완료됨을 확인
+- ModelGate identity가 Pod log에서 base64 synthetic proof를 읽고
+  `FLAG{stage_2_rbac_chaining_placeholder}`로 디코딩하는 intended path 확인
+- CloudWatch EKS audit에서 operator role의 impersonated effective identity가 ModelGate SA인
+  Job create `201`과 invalid Job create `422`를 확인
+- CloudWatch EKS audit에서 `monitoring-runner`의 `stage-02-flag` Secret get `200` 확인
+- Stage 2 EKS intended path, shortcut denial, NetworkPolicy, node placement, audit evidence 완료
+
+### EKS Stage 3 composition
+
+- 통합 EKS overlay가 Stage 1~3 control resources를 함께 렌더링하며 임시
+  `attack-client.yaml`은 intended boundary-crossing acceptance 시에만 별도 생성
+- kind 전용 `10.96.0.1/32`, `172.16.0.0/12:6443` API 목적지를 Stage 3 공통
+  NetworkPolicy에서 제거
+- Prometheus Pod만 `172.20.0.1/32:443`에 접근하는 별도 EKS NetworkPolicy 추가
+- Grafana와 credential broker는 ServiceAccount token을 mount하지 않고 Kubernetes API
+  egress도 받지 않으며, 모든 Stage 3 Service는 cluster-internal 유지
+- Prometheus, Grafana, credential broker에 readiness/liveness probe와 requests/limits 추가
+- Prometheus 3.14.0, Grafana 13.2.2, nginx-unprivileged 1.29.1 pinned OCI index가 모두
+  `linux/amd64` manifest를 제공함을 registry에서 확인
+- 실제 EKS apply와 세 Deployment rollout 성공, 모두 general node에서 `1/1 Running`,
+  restart 0 및 ClusterIP-only Service 유지 확인
+- Prometheus에만 projected ServiceAccount token이 주입되고 Grafana와 credential broker에는
+  token volume이 없음을 실제 Pod에서 확인
+- `monitoring-runner` client가 Grafana datasource proxy를 통해 topology와 opaque credential
+  reference만 발견하고 broker에서 범위 제한 synthetic Git credential과 Stage 3 Flag 교환
+- 임의 credential reference는 `404`, Prometheus TCP 9090 직접 접근은 NetworkPolicy timeout,
+  Secret/workload/RBAC/exec/node 권한은 모두 거부
+- CloudWatch EKS audit에서 Prometheus SA의 namespace 한정 services/endpoints/pods watch
+  `200`만 확인했으며 acceptance client는 검증 후 삭제
+- 현재 client는 운영자가 생성하고 `exec`하는 acceptance harness다. 팀 실습 전에는
+  operator `exec` 없이 Stage 2 output identity에서 이어지는 참가자용 handoff가 필요
+
+### EKS Stage 4 composition
+
+- Argo CD CRD만 server-side apply하고 기존 Stage 1~3 field ownership은 건드리지 않도록
+  `deploy/eks-lab/stage-04` 하위 overlay를 별도 적용 단위로 구성
+- 상위 EKS overlay는 Stage 1~4 전체 구성을 계속 렌더링
+- Stage 4 공통 NetworkPolicy에서 kind 전용 API CIDR을 제거하고 Argo CD application
+  controller만 `172.20.0.1/32:443`에 접근하는 별도 policy 추가
+- Redis 8.2.3-alpine OCI index를
+  `sha256:08ad0b1d280850169a790dba1393ff7a90aef951fc19632cf4d3ce4f78e679ba`로 고정
+- Argo CD 3.5.3, Gitea 1.27.3-rootless, Redis 8.2.3-alpine, nginx-unprivileged 1.29.1
+  pinned image가 모두 `linux/amd64` manifest를 제공함을 registry에서 확인
+- 사용하지 않는 Argo CD server/Dex/ApplicationSet/notification entrypoint는 replica 0
+- Redis는 synthetic password Secret을 사전 생성해 upstream API-dependent initializer를
+  제거하고 ServiceAccount token automount와 Kubernetes API egress를 비활성화
+- Gitea와 baseline/desired runtime-builder에 probes와 requests/limits 추가
+- Stage 4 EKS 전용/전체 통합 Kustomize render와 관련 attack/shortcut 테스트 35개 통과
+- 첫 실제 apply에서 upstream Redis `secret-init`이 token 비활성화 때문에 실패하고
+  controller/repo-server가 Redis Secret을 기다리는 현상을 확인
+- Redis 인증을 synthetic Secret으로 사전 생성하고 API-dependent init container를 제거해
+  token/API egress 없이 복구; 핵심 Pod 5개 `1/1 Running`, restart 0 확인
+- Gitea synthetic 사용자/repository와 pre-receive hook을 bootstrap하고 baseline branch를
+  Argo에서 `Synced/Healthy`로 확인
+- `main` branch와 repository root의 `forbidden.txt` push는 hook이 거부
+- 허용된 `stage4-lab:runtime-builder/` 변경 commit
+  `e6755e2f2fb4bc26d49150f36efa359f3439c640`을 Argo CD가 reconcile
+- Application `Synced/Healthy`, live Deployment `mode=git-controlled`, pinned image와
+  `FLAG{stage_4_gitops_placeholder}` proof 확인
+- Argo controller는 기존 `runtime-builder` patch/update만 허용되고 workload create/delete,
+  다른 Deployment patch, Secret/ServiceAccount/RBAC create는 거부
+- privileged와 hostPath dry-run은 Kubernetes validation/Pod Security/Stage 4 admission에서 거부
+- live runtime-builder에 ServiceAccount token, hostPath, privileged, Stage 5 nodeSelector 없음 확인
+- CloudWatch EKS audit에서 Argo application controller SA의 `runtime-builder` Deployment
+  patch `ResponseComplete 200` 확인
+- Gitea는 `emptyDir` 기반이므로 Pod 재생성 뒤 사용자/repository/hook bootstrap을 다시
+  실행해야 하며 팀 실습용 자동 bootstrap/reset은 아직 필요
+
+### EKS Stage 5 composition
+
+- 상위 EKS overlay가 Stage 1~5를 렌더링하도록 `deploy/eks-lab/stage-05` 조합 추가
+- Stage 5 base에 Stage 4 EKS 전용 controller API egress와 내부 통신 제한을 동일하게 적용하고
+  두 overlay 간 파일 일치를 테스트로 고정
+- escape 관리형 노드만 cloud-init으로 고정 synthetic node proof를 생성하며 general node,
+  Kubernetes manifest, IAM 자격 증명에는 proof를 추가하지 않음
+- 기존 escape node에는 새 launch-template version을 적용해 롤링 교체했으며 general node와
+  control plane은 변경하지 않음 (`0 added, 2 changed, 0 destroyed`)
+- Stage 5/EKS 관련 계약 테스트 37개, 통합 Kustomize render, Terraform fmt/validate 통과
+- 새 escape node 한 대가 `Ready`, taint/label 유지, containerd 2.2.7과 exact socket 확인
+- containerd socket은 `stage-05-runtime/runtime-builder` Pod 하나에만 노출되고 token,
+  privileged, host namespace는 비활성화
+- synthetic Git baseline `fc15e866d1e182d652a6333ea3023a40ed892730`과 desired revision
+  `49346f7c3e25642937e0abfd38dc47af07620a89`을 Argo가 `Synced/Healthy`로 reconcile
+- digest-pinned Debian proof image를 escape node containerd가 pull하고 CRI create/start를 통해
+  `FLAG{stage_5_node_placeholder}` 획득; 단기 container는 runtime에서 정리되고 Pod proof도 reset
+- 다른 workload create/delete/update, general node 이동, 다른 socket, privileged, SA token,
+  hostNetwork shortcuts는 RBAC/admission에서 거부
+- CloudWatch audit에서 Argo controller patch `ResponseComplete 200`과 Stage 5 Pod exec 14개
+  audit ID의 `ResponseStarted`/`ResponseComplete` 및 streaming status `101` 확인
+- acceptance 후 Terraform plan `No changes`
+
 ### Delivery
 
 - GitHub Actions Python test
@@ -137,7 +292,7 @@
 
 ## 최근 검증 결과
 
-- Python tests: `70 passed`
+- Python tests: `87 passed`
 - Python compileall: passed
 - Docker Compose config validation: passed
 - Terraform format: passed
@@ -159,6 +314,51 @@
 - 실제 EKS node 3대 `Ready`: general 2대, escape 1대와 escape `NoSchedule` taint 확인
 - 실제 EC2 ENI: general node는 general SG만, escape node는 escape SG만 연결됨을 확인
 - EKS Stage 1 overlay Kustomize render: passed
+- EKS Stage 1 SSRF intended/shortcut 정적 계약 테스트 9개: passed
+- EKS Stage 1 canary Kustomize patch/render 및 digest 치환: passed
+- EKS Stage 2 composition/RBAC/API egress 계약 테스트 31개: passed
+- Stage 1+2 통합 EKS Kustomize render: passed
+- Stage 1~3 통합 EKS Kustomize render: passed
+- EKS Stage 3 composition/Prometheus-only API egress 계약 테스트: passed
+- Stage 3 pinned image `linux/amd64` availability: verified
+- 실제 EKS Stage 3 rollout: passed (세 Pod `1/1 Running`, general node, restart 0)
+- 실제 EKS Grafana datasource discovery → broker credential exchange: passed
+- 실제 EKS Stage 3 arbitrary reference/direct Prometheus/RBAC/external exposure shortcuts: denied
+- 실제 EKS Stage 3 CloudWatch audit namespace-scoped discovery watch `200`: verified
+- Stage 1~4 통합 EKS Kustomize render: passed
+- Stage 4 분리 server-side EKS overlay render: passed
+- EKS Stage 4 controller-only API egress와 Redis digest 계약 포함 대상 테스트 35개: passed
+- Stage 4 pinned image `linux/amd64` availability와 EKS 1.36 CRD/admission dry-run: verified
+- 실제 EKS Stage 4 핵심 Pod rollout: passed (5개 `1/1 Running`, general node, restart 0)
+- 실제 EKS Stage 4 baseline 및 Git-controlled revision: `Synced/Healthy`
+- 실제 EKS Stage 4 wrong branch/path push: denied
+- 실제 EKS Stage 4 Git commit → Argo reconciliation → synthetic proof: passed
+- 실제 EKS Stage 4 controller RBAC 및 privileged/hostPath shortcuts: denied
+- 실제 EKS Stage 4 CloudWatch audit controller patch `200`: verified
+- Stage 1~5 통합 EKS Kustomize render와 Stage 5 관련 계약 테스트 37개: passed
+- 실제 Terraform Stage 5 escape launch-template/node-group update: `0 add, 2 change, 0 destroy`
+- 실제 EKS Stage 5 escape node 한 대 `Ready`, label/taint와 containerd 2.2.7: verified
+- 실제 EKS Stage 5 Git baseline/desired → Argo reconciliation: `Synced/Healthy`
+- 실제 EKS Stage 5 runtime socket 단일 Pod 노출 및 CRI synthetic node proof: passed
+- 실제 EKS Stage 5 RBAC/admission shortcut matrix: denied
+- 실제 EKS Stage 5 CloudWatch audit Argo patch `200`, Pod exec streaming `101`: verified
+- 실제 EKS Stage 5 acceptance 후 Terraform plan: `No changes`
+- 실제 EKS Stage 2 RBAC positive/negative matrix: passed
+- 실제 EKS Stage 2 admission shortcut 7개: denied
+- 실제 EKS Stage 2 Job → monitoring-runner → synthetic Flag: passed
+- 실제 EKS Stage 2 CloudWatch audit create `201`/denied `422`/Secret get `200`: verified
+- 실제 EKS Stage 1 사전 점검: cluster/add-on/node/taint 정상, client dry-run passed
+- ModelGate GHCR OCI index anonymous inspect와 digest 확인: passed
+- Stage 1 EKS digest/account-portability attack/shortcut 계약 테스트 18개: passed
+- 실제 EKS Stage 1 rollout: passed (`3/3 Running`, general node, restart 0)
+- 실제 EKS Stage 1 `/healthz`: `{"status":"ok","version":"0.1.0"}`
+- 실제 EKS Stage 1 `/readyz`: `{"status":"ready"}`
+- 실제 EKS Stage 1 marker-only RCE: validation `succeeded`, fixed proof evidence verified
+- RCE 이후 validator 로그: start/success metadata만 기록, credential 또는 proof 내용 없음
+- 실제 EKS Stage 1 redirect SSRF: fixed cluster-local target에서 synthetic canary proof 확인
+- canary access log: ModelGate Pod IP에서 발생한 `GET /canary` 200 확인
+- 비인가 Pod의 canary FQDN 직접 접근: DNS resolution timeout으로 denied
+- 비인가 Pod의 canary ClusterIP 직접 접근: explicit egress 허용 후에도 ingress에서 denied
 - Stage 5 EKS runtime-client local image build and runtime checks: passed
 - GHCR runtime-client anonymous digest pull, `crictl version v1.36.0`, 기본 socket 설정: passed
 - digest-pinned Stage 5 Kustomize render와 attack/shortcut 계약 테스트 15개: passed
@@ -187,7 +387,7 @@
 - RCE validation status: `succeeded`
 - test listener cleanup on ports 5000/8080: verified
 - PR #2 checks: test/container/runtime-client succeeded
-- main merge commit `00197c9` GitHub Actions run #8: succeeded
+- main merge commit `a2de860` GitHub Actions run #10: succeeded
 
 ## 현재 구현 상태
 
@@ -200,17 +400,18 @@
 | Stage 4 Argo CD | 완료 | 제한된 Git change, reconciliation, shortcut denial 검증됨 |
 | Stage 5 Runtime | 완료 | escape worker, CRI proof, shortcut denial, audit 검증됨 |
 | Stage 6 CSI/IAM | 미구현 | AWS threat model과 tag policy 필요 |
-| Terraform/EKS | 구현 중 | bootstrap과 runtime-client publish/digest pin 완료, Stage 1~5 배포 조합 필요 |
+| Terraform/EKS | 구현 중 | Stage 1~5 AWS acceptance 완료, clean 재배포·자동화 필요 |
 
-## 다음 작업: Terraform/EKS plan 및 Stage 1~5 배포 조합
+## 다음 작업: Stage 1~5 clean 재배포와 orchestration
 
 Terraform foundation의 첫 AWS apply, node/ENI 경계, strict NetworkPolicy와 CoreDNS 복구,
 최종 no-drift까지 확인했다. `bootstrap.sh`는 clean deployment에서 CoreDNS add-on보다
 bootstrap NetworkPolicy를 먼저 적용하도록 두 단계로 구성했고, 현재 cluster에서 중단 후
-재실행 경로를 검증했다. 다음 작업은 비용/시간을 정해 destroy 후 clean bootstrap과 second
-apply 반복성을 검증하거나, 그 검증을 보류하고 Stage 1~5 manifest composition 및 acceptance
-orchestration을 먼저 추가하는 것이다. Stage 6 CSI/IAM은 별도 AWS threat model과 tag
-boundary를 확정한 뒤 추가한다.
+재실행 경로를 검증했다. Stage 1~5 AWS acceptance와 최종 Terraform no-drift를 완료했다.
+다음 작업은 현재 수동으로 수행한 CRD server-side apply, Stage overlay 적용, synthetic
+Gitea bootstrap, intended-path acceptance와 reset을 계정 중립적인 orchestration으로 묶고,
+destroy 후 개인 계정 clean second apply 및 이후 팀 계정 배포를 검증하는 것이다. Stage 6
+CSI/IAM은 별도 AWS threat model과 tag boundary를 확정한 뒤 추가한다.
 
 ### Terraform 시작 전 유지 조건
 
@@ -248,19 +449,25 @@ boundary를 확정한 뒤 추가한다.
   않았다.
 - Stage 1부터 Stage 5까지를 한 명령으로 배포하고 전체 체인을 연속 실행하는 acceptance
   harness는 없다. 현재 Stage 2~5는 Stage별 kind smoke로 검증한다.
-- Stage 3 Kustomization은 Stage 2를 base로 포함하지 않고, Stage 4도 Stage 3을 base로
-  포함하지 않는다. Stage 5만 Stage 4 overlay를 직접 포함한다. 따라서 Stage 간 identity와
-  credential 전달 계약은 검증됐지만 Stage 2→5 전체 manifest 조합은 아직 배포 단위가 아니다.
+- Stage별 base Kustomization은 서로 독립적이며 통합 EKS overlay는 현재 Stage 1~5를
+  조합한다. Stage 4/5는 vendored CRD 때문에 CRD server-side apply와 나머지 overlay apply를
+  분리해야 한다.
 - Stage 1 application deployment와 Stage 2~5 overlay를 하나의 clean cluster에서 연결한
   end-to-end smoke는 아직 실행하지 않았다.
 - 배포별 무작위 Flag 발급, hash 기반 채점, reset/reissue 서비스는 없다. 현재 proof와
   credential은 local lab용 placeholder/synthetic 값이다.
-- Stage 2~5 checkpoint는 PR #1, Terraform foundation과 runtime-client image는 PR #2로
-  main에 병합되었고 각각 CI가 통과했다. 현재 digest pin 후속 변경은 미커밋이다.
+- 현재 `poc/rce_marker.py`의 AWS smoke는 운영자 로컬 Python 3.11 격리 환경에서 실행한다.
+  팀 계정 참가자 배포 전에는 digest-pinned PoC runner 이미지 또는 사전 생성된 안전한
+  payload/curl 흐름을 제공해 참가자 로컬 Python 의존성과 `kubectl exec` 우회를 제거한다.
+- Stage 2~5 checkpoint는 PR #1, Terraform foundation과 runtime-client image는 PR #2,
+  Stage 5 runtime-client digest pin은 PR #3으로 main에 병합되었고 CI가 통과했다. 현재
+  branch에는 Stage 1 commit `a21c1c8`, Stage 2 commit `0314462`, Stage 3 commit
+  `1f64732`, Stage 4 commit `23ac983`이 원격에 보존되었고 Stage 5 EKS composition은
+  로컬 변경 상태다.
 
 ## 알려진 제약과 주의사항
 
-- 현재 로컬 검증에서 해결되지 않은 실패는 없다. Python 70개, Stage 2~5 kind
+- 현재 로컬 검증에서 해결되지 않은 실패는 없다. Python 87개, Stage 2~5 kind
   acceptance, Compose/Kustomize/compile 검사가 통과했다.
 - Stage 5 namespace는 containerd socket hostPath 때문에 Pod Security `privileged` level을
   사용한다. 실제 container는 privileged가 아니지만 runtime socket 자체는 사실상 node

@@ -9,6 +9,19 @@ from urllib.parse import urlencode
 import httpx
 
 CANARY_VALUE = "MODELGATE_INTERNAL_SSRF_PROOF"
+CANARY_TARGETS = {
+    "compose": "http://lab-canary:9000/canary",
+    "eks": "http://lab-canary.stage-01-canary.svc.cluster.local:9000/canary",
+}
+
+
+def selected_canary_target() -> str:
+    target_name = os.getenv("POC_CANARY_TARGET", "compose")
+    try:
+        return CANARY_TARGETS[target_name]
+    except KeyError as error:
+        choices = ", ".join(sorted(CANARY_TARGETS))
+        raise ValueError(f"POC_CANARY_TARGET must be one of: {choices}") from error
 
 
 def main() -> None:
@@ -16,7 +29,7 @@ def main() -> None:
     redirector = os.getenv(
         "POC_REDIRECTOR_URL", "https://httpbin.org/redirect-to"
     )
-    internal_target = "http://lab-canary:9000/canary"
+    internal_target = selected_canary_target()
     first_hop = f"{redirector}?{urlencode({'url': internal_target, 'status_code': 302})}"
 
     with httpx.Client(timeout=45.0) as client:

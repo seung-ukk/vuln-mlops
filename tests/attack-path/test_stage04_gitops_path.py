@@ -35,3 +35,29 @@ def test_git_change_controls_existing_workload_and_emits_proof():
     assert baseline["spec"]["template"]["spec"]["containers"][0]["env"][0]["value"] == "baseline"
     assert desired["spec"]["template"]["spec"]["containers"][0]["env"][0]["value"] == "git-controlled"
     assert desired["spec"]["template"]["metadata"]["annotations"]["lab.vuln-mlops/stage-04-proof"] == "FLAG{stage_4_gitops_placeholder}"
+
+    for deployment in [baseline, desired]:
+        container = deployment["spec"]["template"]["spec"]["containers"][0]
+        assert container["readinessProbe"]["httpGet"] == {"path": "/", "port": "http"}
+        assert container["livenessProbe"]["httpGet"] == {"path": "/", "port": "http"}
+        assert container["resources"]["requests"] == {"cpu": "10m", "memory": "32Mi"}
+        assert container["resources"]["limits"] == {"cpu": "100m", "memory": "64Mi"}
+
+def test_stage4_operational_images_and_gitea_health_are_pinned():
+    kustomization = yaml.safe_load((STAGE / "kustomization.yaml").read_text(encoding="utf-8"))
+    images = {item["name"]: item for item in kustomization["images"]}
+    assert images["public.ecr.aws/docker/library/redis"]["digest"] == (
+        "sha256:08ad0b1d280850169a790dba1393ff7a90aef951fc19632cf4d3ce4f78e679ba"
+    )
+
+    gitea = docs("git-server.yaml")[0]
+    container = gitea["spec"]["template"]["spec"]["containers"][0]
+    assert "@sha256:" in container["image"]
+    assert container["readinessProbe"]["httpGet"] == {"path": "/api/healthz", "port": "http"}
+    assert container["livenessProbe"]["httpGet"] == {"path": "/api/healthz", "port": "http"}
+    assert container["resources"]["requests"]
+    assert container["resources"]["limits"]
+
+    redis_secret = docs("redis-secret.yaml")[0]
+    assert redis_secret["metadata"]["name"] == "argocd-redis"
+    assert redis_secret["stringData"] == {"auth": "SYNTHETIC_STAGE4_REDIS_PASSWORD"}

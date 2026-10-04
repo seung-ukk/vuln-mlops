@@ -5,6 +5,9 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 TF = ROOT / "infra" / "terraform"
+MODELGATE_IMAGE_DIGEST = (
+    "sha256:9953d23e8102114873c3a52eaecd0a2e80d260cb0b7ee09ae348c0af3d66a244"
+)
 
 
 def terraform_text() -> str:
@@ -14,6 +17,168 @@ def terraform_text() -> str:
 def coredns_policy() -> dict:
     path = ROOT / "deploy" / "eks-lab" / "coredns-network-policy.yaml"
     return yaml.safe_load(path.read_text(encoding="utf-8"))
+
+
+def eks_overlay() -> dict:
+    path = ROOT / "deploy" / "eks-lab" / "kustomization.yaml"
+    return yaml.safe_load(path.read_text(encoding="utf-8"))
+
+
+def test_stage1_eks_overlay_pins_the_published_modelgate_image() -> None:
+    overlay = eks_overlay()
+    assert overlay["images"] == [
+        {
+            "name": "ghcr.io/seung-ukk/vuln-mlops",
+            "newName": "ghcr.io/seung-ukk/vuln-mlops",
+            "digest": MODELGATE_IMAGE_DIGEST,
+        }
+    ]
+
+    deployment = yaml.safe_load(
+        (ROOT / "deploy" / "base" / "deployment.yaml").read_text(encoding="utf-8")
+    )
+    containers = deployment["spec"]["template"]["spec"]["containers"]
+    assert {container["name"] for container in containers} == {
+        "api",
+        "mlflow-registry",
+        "validator",
+    }
+    assert {container["image"] for container in containers} == {
+        "ghcr.io/seung-ukk/vuln-mlops:main"
+    }
+
+
+def test_eks_foundation_and_overlay_share_the_stage2_api_service_boundary() -> None:
+    locals_text = (TF / "locals.tf").read_text(encoding="utf-8")
+    main_text = (TF / "main.tf").read_text(encoding="utf-8")
+    outputs_text = (TF / "outputs.tf").read_text(encoding="utf-8")
+    overlay = eks_overlay()
+
+    assert 'service_ipv4_cidr     = "172.20.0.0/16"' in locals_text
+    assert "kubernetes_service_ip = cidrhost(local.service_ipv4_cidr, 1)" in locals_text
+    assert "service_ipv4_cidr  = local.service_ipv4_cidr" in main_text
+    assert 'output "kubernetes_service_ip"' in outputs_text
+    assert "../../lab/stages/stage-02-rbac" in overlay["resources"]
+
+
+def test_eks_overlay_targets_only_the_two_stage2_api_policies() -> None:
+    overlay = eks_overlay()
+    patch_targets = {
+        item["path"]: item["target"]
+        for item in overlay["patches"]
+        if "stage-02-api-egress" in item["path"]
+    }
+    assert patch_targets == {
+        "stage-02-api-egress-patch.yaml": {
+            "group": "networking.k8s.io",
+            "version": "v1",
+            "kind": "NetworkPolicy",
+            "name": "stage-02-api-egress",
+            "namespace": "stage-02-rbac",
+        },
+        "modelgate-stage-02-api-egress-patch.yaml": {
+            "group": "networking.k8s.io",
+            "version": "v1",
+            "kind": "NetworkPolicy",
+            "name": "modelgate-stage-02-api-egress",
+            "namespace": "modelgate-lab",
+        },
+    }
+
+
+def test_eks_overlay_composes_stage3_with_prometheus_only_api_egress() -> None:
+    overlay = eks_overlay()
+    assert "../../lab/stages/stage-03-monitoring" in overlay["resources"]
+    assert "stage-03-prometheus-api-egress.yaml" in overlay["resources"]
+
+    monitoring_patch = next(
+        item
+        for item in overlay["patches"]
+        if item["path"] == "stage-03-monitoring-flows-patch.yaml"
+    )
+    assert monitoring_patch["target"] == {
+        "group": "networking.k8s.io",
+        "version": "v1",
+        "kind": "NetworkPolicy",
+        "name": "monitoring-flows",
+        "namespace": "stage-03-monitoring",
+    }
+
+    api_policy = yaml.safe_load(
+        (ROOT / "deploy" / "eks-lab" / "stage-03-prometheus-api-egress.yaml").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert api_policy["spec"]["podSelector"]["matchLabels"] == {"app": "prometheus"}
+    assert api_policy["spec"]["egress"] == [
+        {
+            "to": [{"ipBlock": {"cidr": "172.20.0.1/32"}}],
+            "ports": [{"protocol": "TCP", "port": 443}],
+        }
+    ]
+
+
+def test_eks_overlay_composes_stage5_through_the_stage4_eks_boundary() -> None:
+    overlay = eks_overlay()
+    assert "stage-05" in overlay["resources"]
+
+    stage4_dir = ROOT / "deploy" / "eks-lab" / "stage-04"
+    stage4_overlay = yaml.safe_load(
+        (stage4_dir / "kustomization.yaml").read_text(encoding="utf-8")
+    )
+    assert "../../../lab/stages/stage-04-gitops" in stage4_overlay["resources"]
+    assert "controller-api-egress.yaml" in stage4_overlay["resources"]
+
+    internal_patch = next(
+        item
+        for item in stage4_overlay["patches"]
+        if item["path"] == "internal-egress-patch.yaml"
+    )
+    assert internal_patch["target"] == {
+        "group": "networking.k8s.io",
+        "version": "v1",
+        "kind": "NetworkPolicy",
+        "name": "stage-04-internal",
+        "namespace": "stage-04-gitops",
+    }
+
+    api_policy = yaml.safe_load(
+        (stage4_dir / "controller-api-egress.yaml").read_text(encoding="utf-8")
+    )
+    assert api_policy["spec"]["podSelector"]["matchLabels"] == {
+        "app.kubernetes.io/name": "argocd-application-controller"
+    }
+    assert api_policy["spec"]["egress"] == [
+        {
+            "to": [{"ipBlock": {"cidr": "172.20.0.1/32"}}],
+            "ports": [{"protocol": "TCP", "port": 443}],
+        }
+    ]
+
+    stage5_dir = ROOT / "deploy" / "eks-lab" / "stage-05"
+    stage5_overlay = yaml.safe_load(
+        (stage5_dir / "kustomization.yaml").read_text(encoding="utf-8")
+    )
+    assert "../../../lab/stages/stage-05-runtime" in stage5_overlay["resources"]
+    assert "controller-api-egress.yaml" in stage5_overlay["resources"]
+    assert (stage5_dir / "controller-api-egress.yaml").read_text(
+        encoding="utf-8"
+    ) == (stage4_dir / "controller-api-egress.yaml").read_text(encoding="utf-8")
+    assert (stage5_dir / "internal-egress-patch.yaml").read_text(
+        encoding="utf-8"
+    ) == (stage4_dir / "internal-egress-patch.yaml").read_text(encoding="utf-8")
+
+
+def test_escape_worker_bootstrap_contains_only_the_synthetic_stage5_proof() -> None:
+    main_text = (TF / "main.tf").read_text(encoding="utf-8")
+    general, escape = main_text.split("    escape = {", 1)
+
+    assert "cloudinit_pre_nodeadm" not in general
+    assert 'content_type = "text/x-shellscript"' in escape
+    assert "/var/lib/vuln-mlops/stage-05-proof" in escape
+    assert "FLAG{stage_5_node_placeholder}" in escape
+    assert "AWS_ACCESS_KEY_ID" not in escape
+    assert "AWS_SECRET_ACCESS_KEY" not in escape
 
 
 def test_eks_foundation_has_general_and_escape_workers() -> None:

@@ -1,0 +1,13 @@
+- op: add
+  path: /spec/egress/-
+  value:
+    to:
+      - namespaceSelector:
+          matchLabels:
+            kubernetes.io/metadata.name: stage-01-canary
+        podSelector:
+          matchLabels:
+            app.kubernetes.io/name: lab-canary
+    ports:
+      - protocol: TCP
+        port: 9000

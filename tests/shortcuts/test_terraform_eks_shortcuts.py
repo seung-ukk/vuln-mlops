@@ -61,6 +61,156 @@ def test_eks_overlay_does_not_restore_imds_or_private_wildcards() -> None:
     assert "0.0.0.0/0" not in overlay
 
 
+def test_stage1_eks_image_cannot_float_to_a_tag() -> None:
+    overlay = yaml.safe_load(
+        (ROOT / "deploy" / "eks-lab" / "kustomization.yaml").read_text(encoding="utf-8")
+    )
+    image = overlay["images"][0]
+    assert "newTag" not in image
+    assert image["digest"].startswith("sha256:")
+    assert len(image["digest"]) == len("sha256:") + 64
+    assert image["digest"] != "sha256:" + ("0" * 64)
+
+
+def test_eks_overlay_contains_no_personal_account_or_cluster_binding() -> None:
+    overlay_dir = ROOT / "deploy" / "eks-lab"
+    text = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in sorted(overlay_dir.rglob("*"))
+        if path.is_file()
+    )
+    forbidden = [
+        "707605822656",
+        "vuln-mlops-personal-lab",
+        "cluster-operator",
+        "arn:aws:",
+        "AWS_ACCESS_KEY_ID",
+        "AWS_SECRET_ACCESS_KEY",
+    ]
+    for value in forbidden:
+        assert value not in text
+
+
+def test_stage2_eks_api_egress_has_no_kind_or_vpc_wildcard() -> None:
+    overlay_dir = ROOT / "deploy" / "eks-lab"
+    patch_names = [
+        "stage-02-api-egress-patch.yaml",
+        "modelgate-stage-02-api-egress-patch.yaml",
+    ]
+    patch_documents = [
+        yaml.safe_load((overlay_dir / name).read_text(encoding="utf-8"))
+        for name in patch_names
+    ]
+
+    for patch in patch_documents:
+        egress = patch[0]["value"]
+        cidrs = {
+            destination["ipBlock"]["cidr"]
+            for rule in egress
+            for destination in rule["to"]
+            if "ipBlock" in destination
+        }
+        ports = {
+            port["port"]
+            for rule in egress
+            for port in rule["ports"]
+        }
+        assert cidrs == {"172.20.0.1/32"}
+        assert 443 in ports
+        assert 6443 not in ports
+
+    text = "\n".join(
+        (overlay_dir / name).read_text(encoding="utf-8") for name in patch_names
+    )
+    for forbidden in [
+        "10.96.0.1/32",
+        "172.16.0.0/12",
+        "10.42.0.0/16",
+        "0.0.0.0/0",
+        "13.125.112.89",
+        "43.200.231.144",
+    ]:
+        assert forbidden not in text
+
+
+def test_stage3_eks_api_egress_is_prometheus_only() -> None:
+    overlay_dir = ROOT / "deploy" / "eks-lab"
+    flow_patch = yaml.safe_load(
+        (overlay_dir / "stage-03-monitoring-flows-patch.yaml").read_text(
+            encoding="utf-8"
+        )
+    )
+    common_egress = flow_patch[0]["value"]
+    assert all(
+        "ipBlock" not in destination
+        for rule in common_egress
+        for destination in rule["to"]
+    )
+
+    api_policy = yaml.safe_load(
+        (overlay_dir / "stage-03-prometheus-api-egress.yaml").read_text(
+            encoding="utf-8"
+        )
+    )
+    text = "\n".join(
+        (overlay_dir / name).read_text(encoding="utf-8")
+        for name in [
+            "stage-03-monitoring-flows-patch.yaml",
+            "stage-03-prometheus-api-egress.yaml",
+        ]
+    )
+    assert api_policy["spec"]["podSelector"] == {"matchLabels": {"app": "prometheus"}}
+    assert "172.20.0.1/32" in text
+    for forbidden in [
+        "10.96.0.1/32",
+        "172.16.0.0/12",
+        "10.42.0.0/16",
+        "0.0.0.0/0",
+        "6443",
+        "169.254.169.254",
+        "arn:aws:",
+    ]:
+        assert forbidden not in text
+
+
+def test_stage4_eks_api_egress_is_argocd_controller_only() -> None:
+    overlay_dir = ROOT / "deploy" / "eks-lab" / "stage-04"
+    internal_patch = yaml.safe_load(
+        (overlay_dir / "internal-egress-patch.yaml").read_text(encoding="utf-8")
+    )
+    common_egress = internal_patch[0]["value"]
+    assert all(
+        "ipBlock" not in destination
+        for rule in common_egress
+        for destination in rule["to"]
+    )
+
+    api_policy = yaml.safe_load(
+        (overlay_dir / "controller-api-egress.yaml").read_text(encoding="utf-8")
+    )
+    text = "\n".join(
+        (overlay_dir / name).read_text(encoding="utf-8")
+        for name in [
+            "internal-egress-patch.yaml",
+            "controller-api-egress.yaml",
+        ]
+    )
+    assert api_policy["spec"]["podSelector"] == {
+        "matchLabels": {"app.kubernetes.io/name": "argocd-application-controller"}
+    }
+    assert "172.20.0.1/32" in text
+    for forbidden in [
+        "10.96.0.1/32",
+        "172.16.0.0/12",
+        "10.42.0.0/16",
+        "0.0.0.0/0",
+        "6443",
+        "169.254.169.254",
+        "arn:aws:",
+    ]:
+        assert forbidden not in text
+
+
 def test_escape_worker_does_not_share_the_general_node_security_group() -> None:
     main = (TF / "main.tf").read_text(encoding="utf-8")
     network = (TF / "network-security.tf").read_text(encoding="utf-8")
@@ -71,6 +221,24 @@ def test_escape_worker_does_not_share_the_general_node_security_group() -> None:
     assert main.count("vpc_security_group_ids     = [aws_security_group.escape_nodes.id]") == 1
     assert 'resource "aws_security_group" "general_nodes"' in network
     assert 'resource "aws_security_group" "escape_nodes"' in network
+
+
+def test_stage5_eks_overlay_reuses_stage4_and_does_not_expose_another_socket() -> None:
+    overlay_dir = ROOT / "deploy" / "eks-lab"
+    stage5 = yaml.safe_load(
+        (overlay_dir / "stage-05" / "kustomization.yaml").read_text(encoding="utf-8")
+    )
+    assert stage5["resources"].count("../../../lab/stages/stage-05-runtime") == 1
+    assert "../../../lab/stages/stage-04-gitops" not in stage5["resources"]
+
+    rendered_sources = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in (ROOT / "lab" / "stages" / "stage-05-runtime").rglob("*.yaml")
+        if path.name != "audit-policy.yaml"
+    )
+    assert rendered_sources.count("/run/containerd/containerd.sock") >= 2
+    assert "/var/run/docker.sock" not in rendered_sources
+    assert "169.254.169.254" not in rendered_sources
 
 
 def test_escape_worker_has_no_general_lateral_ingress_or_unrestricted_egress() -> None:
