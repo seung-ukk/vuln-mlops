@@ -54,7 +54,17 @@ upstream API-dependent secret initializer and ServiceAccount token can be remove
 Unused Argo CD entrypoints are scaled to zero, and Gitea remains ClusterIP-only.
 AWS acceptance verified the restricted Git push, Argo reconciliation, admission/RBAC
 denials, and audit evidence. Gitea data remains ephemeral and must be bootstrapped
-again after its Pod is recreated. Stage 5 composition is still pending.
+again after its Pod is recreated.
+
+Stage 5 is composed through `stage-05/`, which consumes the complete Stage 5 base and
+reapplies the same two EKS-only Stage 4 network restrictions. Tests require those
+small network files to stay identical to the Stage 4 EKS overlay. It moves only
+`runtime-builder` into `stage-05-runtime`, fixes its destination and controller RBAC,
+and mounts only `/run/containerd/containerd.sock` on the tainted escape worker.
+Terraform writes the fixed synthetic node proof during escape-node cloud-init; the
+proof is not a credential, does not enter a Kubernetes manifest, and is absent from
+general workers. Updating an existing foundation adds a launch-template version and
+can roll the single escape node, so review the saved plan before applying it.
 
 `coredns-network-policy.yaml` is the bootstrap exception required by VPC CNI strict
 mode. It selects only the managed CoreDNS Pods and permits DNS, Kubernetes API, probe,

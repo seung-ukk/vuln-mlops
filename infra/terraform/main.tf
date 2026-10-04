@@ -192,6 +192,20 @@ module "eks" {
       iam_role_use_name_prefix   = false
       vpc_security_group_ids     = [aws_security_group.escape_nodes.id]
 
+      # Stage 5 uses a synthetic, fixed proof that exists only on the disposable
+      # escape worker.  It is not a credential and is never placed in a Pod
+      # manifest or mounted directly into the runtime-builder workload.
+      cloudinit_pre_nodeadm = [{
+        content_type = "text/x-shellscript"
+        content      = <<-EOT
+          #!/bin/bash
+          set -euo pipefail
+          install -d -m 0755 -o root -g root /var/lib/vuln-mlops
+          printf '%s\n' 'FLAG{stage_5_node_placeholder}' > /var/lib/vuln-mlops/stage-05-proof
+          chmod 0400 /var/lib/vuln-mlops/stage-05-proof
+        EOT
+      }]
+
       metadata_options = {
         http_endpoint               = "enabled"
         http_protocol_ipv6          = "disabled"

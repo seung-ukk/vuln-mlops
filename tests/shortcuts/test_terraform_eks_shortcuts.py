@@ -223,6 +223,24 @@ def test_escape_worker_does_not_share_the_general_node_security_group() -> None:
     assert 'resource "aws_security_group" "escape_nodes"' in network
 
 
+def test_stage5_eks_overlay_reuses_stage4_and_does_not_expose_another_socket() -> None:
+    overlay_dir = ROOT / "deploy" / "eks-lab"
+    stage5 = yaml.safe_load(
+        (overlay_dir / "stage-05" / "kustomization.yaml").read_text(encoding="utf-8")
+    )
+    assert stage5["resources"].count("../../../lab/stages/stage-05-runtime") == 1
+    assert "../../../lab/stages/stage-04-gitops" not in stage5["resources"]
+
+    rendered_sources = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in (ROOT / "lab" / "stages" / "stage-05-runtime").rglob("*.yaml")
+        if path.name != "audit-policy.yaml"
+    )
+    assert rendered_sources.count("/run/containerd/containerd.sock") >= 2
+    assert "/var/run/docker.sock" not in rendered_sources
+    assert "169.254.169.254" not in rendered_sources
+
+
 def test_escape_worker_has_no_general_lateral_ingress_or_unrestricted_egress() -> None:
     network = (TF / "network-security.tf").read_text(encoding="utf-8")
     ingress_resources = "\n".join(

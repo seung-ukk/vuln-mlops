@@ -118,9 +118,9 @@ def test_eks_overlay_composes_stage3_with_prometheus_only_api_egress() -> None:
     ]
 
 
-def test_eks_overlay_composes_stage4_with_controller_only_api_egress() -> None:
+def test_eks_overlay_composes_stage5_through_the_stage4_eks_boundary() -> None:
     overlay = eks_overlay()
-    assert "stage-04" in overlay["resources"]
+    assert "stage-05" in overlay["resources"]
 
     stage4_dir = ROOT / "deploy" / "eks-lab" / "stage-04"
     stage4_overlay = yaml.safe_load(
@@ -154,6 +154,31 @@ def test_eks_overlay_composes_stage4_with_controller_only_api_egress() -> None:
             "ports": [{"protocol": "TCP", "port": 443}],
         }
     ]
+
+    stage5_dir = ROOT / "deploy" / "eks-lab" / "stage-05"
+    stage5_overlay = yaml.safe_load(
+        (stage5_dir / "kustomization.yaml").read_text(encoding="utf-8")
+    )
+    assert "../../../lab/stages/stage-05-runtime" in stage5_overlay["resources"]
+    assert "controller-api-egress.yaml" in stage5_overlay["resources"]
+    assert (stage5_dir / "controller-api-egress.yaml").read_text(
+        encoding="utf-8"
+    ) == (stage4_dir / "controller-api-egress.yaml").read_text(encoding="utf-8")
+    assert (stage5_dir / "internal-egress-patch.yaml").read_text(
+        encoding="utf-8"
+    ) == (stage4_dir / "internal-egress-patch.yaml").read_text(encoding="utf-8")
+
+
+def test_escape_worker_bootstrap_contains_only_the_synthetic_stage5_proof() -> None:
+    main_text = (TF / "main.tf").read_text(encoding="utf-8")
+    general, escape = main_text.split("    escape = {", 1)
+
+    assert "cloudinit_pre_nodeadm" not in general
+    assert 'content_type = "text/x-shellscript"' in escape
+    assert "/var/lib/vuln-mlops/stage-05-proof" in escape
+    assert "FLAG{stage_5_node_placeholder}" in escape
+    assert "AWS_ACCESS_KEY_ID" not in escape
+    assert "AWS_SECRET_ACCESS_KEY" not in escape
 
 
 def test_eks_foundation_has_general_and_escape_workers() -> None:
