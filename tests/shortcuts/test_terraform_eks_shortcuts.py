@@ -12,7 +12,7 @@ def terraform_text() -> str:
 
 
 def coredns_policy() -> dict:
-    path = ROOT / "deploy" / "eks-lab" / "coredns-network-policy.yaml"
+    path = ROOT / "deploy" / "eks-lab" / "stage-03" / "coredns-network-policy.yaml"
     return yaml.safe_load(path.read_text(encoding="utf-8"))
 
 
@@ -55,7 +55,10 @@ def test_instance_metadata_and_logs_are_bounded() -> None:
 
 
 def test_eks_overlay_does_not_restore_imds_or_private_wildcards() -> None:
-    overlay = (ROOT / "deploy" / "eks-lab" / "kustomization.yaml").read_text(encoding="utf-8")
+    overlay = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in sorted((ROOT / "deploy" / "eks-lab").rglob("*.yaml"))
+    )
     assert "169.254.169.254" not in overlay
     assert "10.0.0.0/8" not in overlay
     assert "0.0.0.0/0" not in overlay
@@ -63,7 +66,9 @@ def test_eks_overlay_does_not_restore_imds_or_private_wildcards() -> None:
 
 def test_stage1_eks_image_cannot_float_to_a_tag() -> None:
     overlay = yaml.safe_load(
-        (ROOT / "deploy" / "eks-lab" / "kustomization.yaml").read_text(encoding="utf-8")
+        (
+            ROOT / "deploy" / "eks-lab" / "stage-03" / "kustomization.yaml"
+        ).read_text(encoding="utf-8")
     )
     image = overlay["images"][0]
     assert "newTag" not in image
@@ -92,7 +97,7 @@ def test_eks_overlay_contains_no_personal_account_or_cluster_binding() -> None:
 
 
 def test_stage2_eks_api_egress_has_no_kind_or_vpc_wildcard() -> None:
-    overlay_dir = ROOT / "deploy" / "eks-lab"
+    overlay_dir = ROOT / "deploy" / "eks-lab" / "stage-03"
     patch_names = [
         "stage-02-api-egress-patch.yaml",
         "modelgate-stage-02-api-egress-patch.yaml",
@@ -134,7 +139,7 @@ def test_stage2_eks_api_egress_has_no_kind_or_vpc_wildcard() -> None:
 
 
 def test_stage3_eks_api_egress_is_prometheus_only() -> None:
-    overlay_dir = ROOT / "deploy" / "eks-lab"
+    overlay_dir = ROOT / "deploy" / "eks-lab" / "stage-03"
     flow_patch = yaml.safe_load(
         (overlay_dir / "stage-03-monitoring-flows-patch.yaml").read_text(
             encoding="utf-8"
@@ -265,7 +270,9 @@ def test_coredns_bootstrap_policy_does_not_open_other_pods_or_arbitrary_ports() 
     assert {port["port"] for port in spec["egress"][0]["ports"]} == {53, 443}
 
     overlay = yaml.safe_load(
-        (ROOT / "deploy" / "eks-lab" / "kustomization.yaml").read_text(encoding="utf-8")
+        (
+            ROOT / "deploy" / "eks-lab" / "stage-03" / "kustomization.yaml"
+        ).read_text(encoding="utf-8")
     )
     assert overlay["resources"].count("coredns-network-policy.yaml") == 1
 

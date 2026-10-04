@@ -7,14 +7,14 @@
 
 ## 현재 기준점
 
-- Branch: `codex/eks-stage1-deploy`
-- Latest merged commit: `a2de860 Merge pull request #3 from seung-ukk/codex/eks-runtime-client-pin`
+- Branch: `codex/stage1-5-orchestration`
+- Latest merged commit: `9d3cc07 Merge pull request #4 from seung-ukk/codex/eks-stage1-deploy`
 - Repository: `https://github.com/seung-ukk/vuln-mlops`
 - Container: `ghcr.io/seung-ukk/vuln-mlops`
-- 현재 작업 트리: Stage 1~4 EKS attack path와 AWS acceptance를 commit `a21c1c8`,
-  `0314462`, `1f64732`, `23ac983`으로 보존하고 원격 branch에 push 완료. Stage 5 통합 EKS
-  overlay와 escape-node synthetic proof cloud-init을 구현하고 실제 AWS에서 Terraform apply,
-  Git/Argo reconciliation, containerd CRI proof, shortcut denial, audit와 no-drift까지 검증 완료
+- 현재 작업 트리: PR #4로 Stage 1~5 EKS composition과 AWS acceptance를 `main`에 병합했다.
+  다음 milestone인 clean 재배포를 위해 Terraform bootstrap, CRD/overlay apply, rollout,
+  synthetic Gitea baseline과 reset/status를 연결하는 account-neutral orchestration을
+  구현했고, 정적 계약과 실제 AWS 재실행·idempotency·reset acceptance를 완료했다.
 
 ## 완료된 작업
 
@@ -282,6 +282,45 @@
   audit ID의 `ResponseStarted`/`ResponseComplete` 및 streaming status `101` 확인
 - acceptance 후 Terraform plan `No changes`
 
+### Stage 1~5 deployment orchestration
+
+- `deploy/eks-lab/orchestrate.sh`에 `deploy`, `reset`, `status` 실행 모드 추가
+- 기존 `infra/terraform/bootstrap.sh`를 재사용해 strict NetworkPolicy/CoreDNS 순서를 보존
+- Terraform output의 cluster name, region, operator role로 임시 kubeconfig를 생성해 개인/팀
+  계정별 ARN이나 account ID가 Kubernetes manifest에 들어가지 않도록 유지
+- Stage 1~3는 기존 client-side ownership으로 적용하고 Argo CD CRD와 Stage 4~5는 기존
+  `vuln-mlops-stage4` server-side manager로 적용해 재실행 시 field conflict를 피하도록 분리
+- 기존 GitOps deployment에서는 Git baseline을 apply 전에 복원해 Argo-owned runtime 필드가
+  reviewed manifest와 일치한 상태에서 Stage 4~5를 재적용
+- Stage 1, canary, Stage 3, Argo CD/Gitea, Stage 5 workload rollout을 고정 목록으로 대기
+- Gitea의 고정 synthetic 사용자/repository를 idempotent하게 생성하고 pre-receive scope hook과
+  `stage4-lab:runtime-builder/` Stage 5 baseline을 재구성
+- 원격 baseline이 이미 같으면 Git commit/push를 생략하고, 내용이 다를 때만 scope hook을
+  통과하는 normal forward commit을 생성하며 force-push는 사용하지 않음
+- reset은 고정 Stage 2 Job, Stage 3 client, ModelGate/runtime-builder의 ephemeral proof state만
+  초기화하며 namespace, Terraform resource, Secret/RBAC 전체 삭제는 수행하지 않음
+- orchestration intended/shortcut 정적 계약 테스트와 WSL `bash -n` 통과
+- 첫 live 재실행은 전체 overlay를 새 field manager 하나로 적용해 기존 manager와 충돌했고
+  안전하게 중단됨; `--force-conflicts` 없이 위의 ownership 분리 방식으로 수정
+- 수정 후 실제 EKS 재실행에서 기존 Gitea repository 감지, baseline 복원, 전체 workload
+  Ready와 Argo `Synced/Healthy` revision `d9d50273b7e74f580ae2f13b23e69c5277652891` 확인
+- 동일 deploy 재실행에서 Gitea commit/push 없이 같은 revision을 유지하고 전체 workload
+  Ready와 Argo `Synced/Healthy`를 재확인해 idempotent resume을 검증함
+- reset 실행 후 ModelGate와 Stage 5 runtime-builder Pod가 새 UID로 교체되었고,
+  Stage 5 proof 파일과 고정 Stage 2 Job, Stage 3 client가 모두 제거된 것을 확인함
+- `accept` 모드는 reset 이후 Stage 1 SSRF/RCE, Stage 2 RBAC, Stage 3 monitoring,
+  Stage 4 GitOps, Stage 5 CRI proof와 대표 shortcut denial을 순서대로 실행하고 reviewed
+  Git baseline과 임시 리소스를 정리하도록 구현함
+- 첫 실제 `accept` 실행은 Stage 1~4를 통과했지만 Stage 5 rollout 직후 종료 중인 이전
+  Pod를 선택했고, 실패 cleanup이 새 Gitea 포트포워드에 Git remote를 갱신하지 않아 중단됨
+- Ready/non-terminating Pod 중 최신 Pod를 선택하고 baseline cleanup마다 현재 동적
+  포트포워드로 Git remote를 갱신하도록 수정함
+- 수정 후 실제 `accept` 재실행에서 Stage 1 SSRF/RCE, Stage 2 RBAC, Stage 3 monitoring,
+  Stage 4 GitOps, Stage 5 CRI proof와 대표 shortcut denial이 모두 통과함
+- cleanup이 reviewed baseline revision `8819a05e455e6edb8d6ceda5aa698f91156e3dc2`를
+  정상 push했고 최종 Argo `Synced/Healthy`와 전체 workload Ready를 확인함
+- destroy 후 clean second apply는 아직 필요
+
 ### Delivery
 
 - GitHub Actions Python test
@@ -343,6 +382,14 @@
 - 실제 EKS Stage 5 RBAC/admission shortcut matrix: denied
 - 실제 EKS Stage 5 CloudWatch audit Argo patch `200`, Pod exec streaming `101`: verified
 - 실제 EKS Stage 5 acceptance 후 Terraform plan: `No changes`
+- Stage 1~5 orchestration 신규 계약 테스트: `11 passed`
+- orchestration acceptance와 기존 EKS foundation/Stage 1 관련 회귀 테스트: `55 passed`
+- Stage 1~5 orchestration WSL Bash syntax: passed
+- 실제 Stage 1~5 orchestration 중단 후 재실행: passed
+- 실제 동일 deploy 재실행 및 Git revision 불변 idempotency: passed
+- 실제 reset과 ephemeral proof/resource 정리: passed
+- 실제 reset 후 Stage 1~5 자동 intended path와 대표 shortcut denial: passed
+- 자동 acceptance cleanup 후 Git baseline 및 Argo `Synced/Healthy`: passed
 - 실제 EKS Stage 2 RBAC positive/negative matrix: passed
 - 실제 EKS Stage 2 admission shortcut 7개: denied
 - 실제 EKS Stage 2 Job → monitoring-runner → synthetic Flag: passed
@@ -408,10 +455,12 @@ Terraform foundation의 첫 AWS apply, node/ENI 경계, strict NetworkPolicy와 
 최종 no-drift까지 확인했다. `bootstrap.sh`는 clean deployment에서 CoreDNS add-on보다
 bootstrap NetworkPolicy를 먼저 적용하도록 두 단계로 구성했고, 현재 cluster에서 중단 후
 재실행 경로를 검증했다. Stage 1~5 AWS acceptance와 최종 Terraform no-drift를 완료했다.
-다음 작업은 현재 수동으로 수행한 CRD server-side apply, Stage overlay 적용, synthetic
-Gitea bootstrap, intended-path acceptance와 reset을 계정 중립적인 orchestration으로 묶고,
-destroy 후 개인 계정 clean second apply 및 이후 팀 계정 배포를 검증하는 것이다. Stage 6
-CSI/IAM은 별도 AWS threat model과 tag boundary를 확정한 뒤 추가한다.
+CRD server-side apply, Stage overlay 적용, synthetic Gitea baseline, 제한된 reset을 계정
+중립적인 orchestration으로 묶고 현재 개인 계정 EKS에서 deploy 재실행, idempotency와
+reset을 검증했다. reset 이후 Stage 1~5 전체 attack path를 실행하는 `accept` 모드와 실제
+EKS 재실행까지 검증했다. 다음 작업은 개인 계정의 destroy 후 clean second apply와 이후
+팀 계정 배포를 검증하는 것이다. Stage 6 CSI/IAM은 별도 AWS threat model과 tag boundary를
+확정한 뒤 추가한다.
 
 ### Terraform 시작 전 유지 조건
 
@@ -448,22 +497,22 @@ CSI/IAM은 별도 AWS threat model과 tag boundary를 확정한 뒤 추가한다
 - Stage 6 CSI/AWS Storage/IAM pivot과 AWS tag/IAM policy boundary는 아직 설계·구현하지
   않았다.
 - Stage 1부터 Stage 5까지를 한 명령으로 배포하고 전체 체인을 연속 실행하는 acceptance
-  harness는 없다. 현재 Stage 2~5는 Stage별 kind smoke로 검증한다.
+  harness의 배포/reset/status와 전체 intended path `accept` 모드를 구현했고 실제 AWS
+  검증을 완료했다. 현재 Stage 2~5는 Stage별 kind smoke도 유지한다.
 - Stage별 base Kustomization은 서로 독립적이며 통합 EKS overlay는 현재 Stage 1~5를
   조합한다. Stage 4/5는 vendored CRD 때문에 CRD server-side apply와 나머지 overlay apply를
   분리해야 한다.
-- Stage 1 application deployment와 Stage 2~5 overlay를 하나의 clean cluster에서 연결한
-  end-to-end smoke는 아직 실행하지 않았다.
+- Stage 1 application deployment와 Stage 2~5 overlay의 기존 cluster 연결 검증은 완료했지만,
+  destroy 후 새 cluster에서 수행하는 clean end-to-end smoke는 아직 실행하지 않았다.
 - 배포별 무작위 Flag 발급, hash 기반 채점, reset/reissue 서비스는 없다. 현재 proof와
   credential은 local lab용 placeholder/synthetic 값이다.
 - 현재 `poc/rce_marker.py`의 AWS smoke는 운영자 로컬 Python 3.11 격리 환경에서 실행한다.
   팀 계정 참가자 배포 전에는 digest-pinned PoC runner 이미지 또는 사전 생성된 안전한
   payload/curl 흐름을 제공해 참가자 로컬 Python 의존성과 `kubectl exec` 우회를 제거한다.
 - Stage 2~5 checkpoint는 PR #1, Terraform foundation과 runtime-client image는 PR #2,
-  Stage 5 runtime-client digest pin은 PR #3으로 main에 병합되었고 CI가 통과했다. 현재
-  branch에는 Stage 1 commit `a21c1c8`, Stage 2 commit `0314462`, Stage 3 commit
-  `1f64732`, Stage 4 commit `23ac983`이 원격에 보존되었고 Stage 5 EKS composition은
-  로컬 변경 상태다.
+  Stage 5 runtime-client digest pin은 PR #3, Stage 1~5 EKS composition은 PR #4로
+  `main`에 병합되었고 CI가 통과했다. 현재 branch는 clean 재배포 orchestration 작업만
+  포함한다.
 
 ## 알려진 제약과 주의사항
 

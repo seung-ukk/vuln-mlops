@@ -7,7 +7,7 @@ from poc.ssrf_canary import CANARY_TARGETS, selected_canary_target
 
 
 ROOT = Path(__file__).resolve().parents[2]
-OVERLAY = ROOT / "deploy" / "eks-lab"
+OVERLAY = ROOT / "deploy" / "eks-lab" / "stage-03"
 
 
 def manifest_documents() -> list[dict]:

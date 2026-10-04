@@ -66,7 +66,51 @@ proof is not a credential, does not enter a Kubernetes manifest, and is absent f
 general workers. Updating an existing foundation adds a launch-template version and
 can roll the single escape node, so review the saved plan before applying it.
 
-`coredns-network-policy.yaml` is the bootstrap exception required by VPC CNI strict
+`stage-03/coredns-network-policy.yaml` is the bootstrap exception required by VPC CNI strict
 mode. It selects only the managed CoreDNS Pods and permits DNS, Kubernetes API, probe,
 and metrics ports. Apply this policy as soon as the nodes and VPC CNI are ready; other
 Pods remain denied until their namespace policies are installed.
+
+## Stage 1-5 orchestration
+
+`orchestrate.sh` joins the existing Terraform bootstrap and the account-neutral
+Kubernetes composition without copying manifests into Terraform. It uses a temporary
+kubeconfig for the Terraform-created operator role, applies Stage 1-3 with their
+existing client-side ownership, then applies the vendored Argo CD CRDs and Stage 4-5
+with the existing `vuln-mlops-stage4` server-side manager. On a resumed deployment it
+restores the Git baseline before apply so Argo-owned runtime fields already match the
+reviewed manifest. It then waits for the fixed workloads and recreates the synthetic
+Gitea user, repository, scope hook, and Stage 5 baseline.
+
+From WSL, with the account-specific `terraform.tfvars` and local state already selected:
+
+```bash
+export AWS_PROFILE=vuln-mlops-admin
+./deploy/eks-lab/orchestrate.sh deploy
+```
+
+Use `--auto-approve` only after reviewing the Terraform plans. On an already converged
+foundation, `--skip-foundation` avoids an infrastructure apply while still deriving the
+cluster name, region, and operator role from Terraform outputs.
+
+```bash
+./deploy/eks-lab/orchestrate.sh deploy --skip-foundation
+./deploy/eks-lab/orchestrate.sh status
+./deploy/eks-lab/orchestrate.sh reset
+```
+
+After preparing the pinned Python 3.11 development environment, run the complete
+post-reset acceptance chain with its interpreter path. The command resets ephemeral
+proof state, exercises Stage 1 through Stage 5 in order, verifies representative
+shortcut denials, and restores the reviewed Git baseline afterward.
+
+```bash
+POC_PYTHON=/tmp/vuln-mlops-poc-venv/bin/python \
+  ./deploy/eks-lab/orchestrate.sh accept
+```
+
+`reset` compares the fixed `stage4-lab:runtime-builder/` baseline through the installed
+pre-receive hook and creates a normal forward commit only when the content differs. It
+removes the fixed Stage 2 Job and Stage 3 client Pod if they exist, and recreates the
+ModelGate and runtime-builder Pods to clear ephemeral proof state. It does not force-push,
+delete namespaces or Terraform resources, or broaden Stage 4/5 RBAC.

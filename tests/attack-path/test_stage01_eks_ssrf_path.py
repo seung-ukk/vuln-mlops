@@ -6,7 +6,7 @@ from poc.ssrf_canary import CANARY_TARGETS, CANARY_VALUE, selected_canary_target
 
 
 ROOT = Path(__file__).resolve().parents[2]
-OVERLAY = ROOT / "deploy" / "eks-lab"
+OVERLAY = ROOT / "deploy" / "eks-lab" / "stage-03"
 
 
 def canary_resources() -> dict[tuple[str, str], dict]:
