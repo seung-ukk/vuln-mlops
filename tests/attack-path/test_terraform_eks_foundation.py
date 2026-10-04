@@ -48,6 +48,44 @@ def test_stage1_eks_overlay_pins_the_published_modelgate_image() -> None:
     }
 
 
+def test_eks_foundation_and_overlay_share_the_stage2_api_service_boundary() -> None:
+    locals_text = (TF / "locals.tf").read_text(encoding="utf-8")
+    main_text = (TF / "main.tf").read_text(encoding="utf-8")
+    outputs_text = (TF / "outputs.tf").read_text(encoding="utf-8")
+    overlay = eks_overlay()
+
+    assert 'service_ipv4_cidr     = "172.20.0.0/16"' in locals_text
+    assert "kubernetes_service_ip = cidrhost(local.service_ipv4_cidr, 1)" in locals_text
+    assert "service_ipv4_cidr  = local.service_ipv4_cidr" in main_text
+    assert 'output "kubernetes_service_ip"' in outputs_text
+    assert "../../lab/stages/stage-02-rbac" in overlay["resources"]
+
+
+def test_eks_overlay_targets_only_the_two_stage2_api_policies() -> None:
+    overlay = eks_overlay()
+    patch_targets = {
+        item["path"]: item["target"]
+        for item in overlay["patches"]
+        if "stage-02-api-egress" in item["path"]
+    }
+    assert patch_targets == {
+        "stage-02-api-egress-patch.yaml": {
+            "group": "networking.k8s.io",
+            "version": "v1",
+            "kind": "NetworkPolicy",
+            "name": "stage-02-api-egress",
+            "namespace": "stage-02-rbac",
+        },
+        "modelgate-stage-02-api-egress-patch.yaml": {
+            "group": "networking.k8s.io",
+            "version": "v1",
+            "kind": "NetworkPolicy",
+            "name": "modelgate-stage-02-api-egress",
+            "namespace": "modelgate-lab",
+        },
+    }
+
+
 def test_eks_foundation_has_general_and_escape_workers() -> None:
     text = terraform_text()
     assert 'general = {' in text

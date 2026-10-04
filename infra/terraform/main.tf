@@ -75,6 +75,7 @@ module "eks" {
 
   name               = local.name
   kubernetes_version = var.kubernetes_version
+  service_ipv4_cidr  = local.service_ipv4_cidr
 
   authentication_mode                      = "API"
   enable_cluster_creator_admin_permissions = false

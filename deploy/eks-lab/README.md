@@ -25,9 +25,15 @@ the first hop with a team-owned HTTPS redirector before the team exercise.
 
 The Terraform foundation creates the VPC, EKS control plane, managed add-ons, and
 separate general/escape node groups. The Stage 5 manifest uses the published,
-digest-pinned runtime-client image without mounting a host binary. Stage 2-5
-cluster-specific API CIDRs remain work for the deployment-composition milestone;
-they are intentionally not widened here as a placeholder.
+digest-pinned runtime-client image without mounting a host binary.
+
+The overlay composes the Stage 2 controls but deliberately excludes its
+`attack-job.yaml`; creating that Job remains the boundary-crossing action. Terraform
+fixes the Kubernetes Service CIDR at `172.20.0.0/16`, and the EKS-only patches replace
+kind's API destinations with the single `172.20.0.1/32` Service IP on TCP 443. Current
+control-plane ENI and public endpoint addresses are not committed, so the same
+manifests remain usable in the personal and team accounts. Stage 3-5 composition is
+still pending.
 
 `coredns-network-policy.yaml` is the bootstrap exception required by VPC CNI strict
 mode. It selects only the managed CoreDNS Pods and permits DNS, Kubernetes API, probe,

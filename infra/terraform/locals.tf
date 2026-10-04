@@ -4,8 +4,10 @@ data "aws_availability_zones" "available" {
 }
 
 locals {
-  name = "${var.lab_id}-${var.environment}"
-  azs  = slice(data.aws_availability_zones.available.names, 0, var.availability_zone_count)
+  name                  = "${var.lab_id}-${var.environment}"
+  azs                   = slice(data.aws_availability_zones.available.names, 0, var.availability_zone_count)
+  service_ipv4_cidr     = "172.20.0.0/16"
+  kubernetes_service_ip = cidrhost(local.service_ipv4_cidr, 1)
 
   private_subnets = [
     for index, az in local.azs : cidrsubnet(var.vpc_cidr, 4, index)

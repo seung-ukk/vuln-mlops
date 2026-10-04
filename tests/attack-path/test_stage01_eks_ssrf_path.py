@@ -35,7 +35,12 @@ def test_eks_overlay_composes_the_canary_and_exact_modelgate_patch() -> None:
         (OVERLAY / "kustomization.yaml").read_text(encoding="utf-8")
     )
     assert overlay["resources"].count("ssrf-canary.yaml") == 1
-    assert overlay["patches"] == [
+    canary_patches = [
+        patch
+        for patch in overlay["patches"]
+        if patch["path"] == "modelgate-canary-egress-patch.yaml"
+    ]
+    assert canary_patches == [
         {
             "path": "modelgate-canary-egress-patch.yaml",
             "target": {

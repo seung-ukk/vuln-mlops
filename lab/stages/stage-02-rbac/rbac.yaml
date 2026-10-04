@@ -79,7 +79,7 @@ metadata:
   name: stage-02-monitoring-runner-flag-reader
   namespace: stage-02-rbac
   labels:
-    lab.vuln-mlops/stage: "0"
+    lab.vuln-mlops/stage: "02"
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role

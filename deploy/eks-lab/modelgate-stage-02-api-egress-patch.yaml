@@ -1,0 +1,9 @@
+- op: replace
+  path: /spec/egress
+  value:
+    - to:
+        - ipBlock:
+            cidr: 172.20.0.1/32
+      ports:
+        - protocol: TCP
+          port: 443

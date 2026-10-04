@@ -61,6 +61,7 @@ def test_monitoring_runner_can_get_only_the_fixed_flag_secret():
         "monitoring-runner",
         "stage-02-rbac",
     ) in subjects(binding)
+    assert binding["metadata"]["labels"]["lab.vuln-mlops/stage"] == "02"
 
 
 def test_attack_job_uses_pinned_runner_and_fixed_identity():

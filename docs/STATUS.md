@@ -13,7 +13,8 @@
 - Container: `ghcr.io/seung-ukk/vuln-mlops`
 - 현재 작업 트리: 게시된 ModelGate OCI digest를 EKS Stage 1 overlay에 고정하고 개인
   AWS 계정 EKS에서 readiness/health/RCE/redirect SSRF를 검증했으며, EKS 전용 synthetic
-  SSRF canary와 제한된 NetworkPolicy 경로를 추가해 로컬 계약/렌더 검증 완료, 미커밋
+  SSRF canary와 제한된 NetworkPolicy 경로를 추가해 검증 후 commit `a21c1c8`로 보존;
+  Stage 2 EKS composition과 API Service `/32` egress를 로컬 검증 중, 미커밋
 
 ## 완료된 작업
 
@@ -168,6 +169,35 @@
   ClusterIP 직접 접근도 connection timeout으로 거부되어 canary ingress selector 경계 확인
 - shortcut smoke용 임시 Pod와 NetworkPolicy 삭제 완료
 
+### EKS Stage 2 composition
+
+- 기존 kind Stage 2 base와 attack Job 제외 계약을 그대로 재사용
+- 통합 EKS overlay가 Stage 1과 Stage 2 control resources를 함께 렌더링
+- Terraform Kubernetes Service CIDR을 `172.20.0.0/16`으로 명시하고 API Service IP를
+  `172.20.0.1`로 계산하는 output 추가
+- EKS overlay에서 kind 전용 `10.96.0.1/32`, `172.16.0.0/12:6443`을 제거하고
+  ModelGate와 Stage 2 Job에 `172.20.0.1/32:443`만 허용
+- 현재/개인 계정 control-plane ENI, public endpoint IP, account ID는 manifest에 넣지 않음
+- EKS 1.36 ValidatingAdmissionPolicy server dry-run: passed
+- 운영자 kubectl을 1.36.4로 맞춰 EKS 1.36.4와 client/server minor 일치 확인
+- Terraform plan/apply는 실제 resource 변경 없이 `kubernetes_service_ip=172.20.0.1`
+  output만 state에 추가
+- 실제 EKS에 Stage 2 namespace, SA, RBAC, synthetic Secret, admission, NetworkPolicy apply 완료
+- ModelGate identity의 self-review와 Stage 2 Job create는 허용되고, Secret 직접 get,
+  RoleBinding create, SA token mint, Pod exec, Node read는 거부됨을 확인
+- EKS admission이 잘못된 Job name/SA/image, privileged, hostPath/Secret volume, env override
+  7개 shortcut을 모두 거부하고 Job/Pod가 생성되지 않음을 확인
+- ModelGate identity가 fixed `stage-02-secret-reader` Job을 생성하고 EKS API Service
+  `/32:443` 경계를 통해 `monitoring-runner`로 실행해 8초 만에 exit 0 완료
+- 실행 Pod는 pinned kubectl digest, projected short-lived SA token, no env/no host mount를 유지
+- Job Pod가 general node에 배치되고 restart 0으로 완료됨을 확인
+- ModelGate identity가 Pod log에서 base64 synthetic proof를 읽고
+  `FLAG{stage_2_rbac_chaining_placeholder}`로 디코딩하는 intended path 확인
+- CloudWatch EKS audit에서 operator role의 impersonated effective identity가 ModelGate SA인
+  Job create `201`과 invalid Job create `422`를 확인
+- CloudWatch EKS audit에서 `monitoring-runner`의 `stage-02-flag` Secret get `200` 확인
+- Stage 2 EKS intended path, shortcut denial, NetworkPolicy, node placement, audit evidence 완료
+
 ### Delivery
 
 - GitHub Actions Python test
@@ -178,7 +208,7 @@
 
 ## 최근 검증 결과
 
-- Python tests: `82 passed`
+- Python tests: `85 passed`
 - Python compileall: passed
 - Docker Compose config validation: passed
 - Terraform format: passed
@@ -202,6 +232,12 @@
 - EKS Stage 1 overlay Kustomize render: passed
 - EKS Stage 1 SSRF intended/shortcut 정적 계약 테스트 9개: passed
 - EKS Stage 1 canary Kustomize patch/render 및 digest 치환: passed
+- EKS Stage 2 composition/RBAC/API egress 계약 테스트 31개: passed
+- Stage 1+2 통합 EKS Kustomize render: passed
+- 실제 EKS Stage 2 RBAC positive/negative matrix: passed
+- 실제 EKS Stage 2 admission shortcut 7개: denied
+- 실제 EKS Stage 2 Job → monitoring-runner → synthetic Flag: passed
+- 실제 EKS Stage 2 CloudWatch audit create `201`/denied `422`/Secret get `200`: verified
 - 실제 EKS Stage 1 사전 점검: cluster/add-on/node/taint 정상, client dry-run passed
 - ModelGate GHCR OCI index anonymous inspect와 digest 확인: passed
 - Stage 1 EKS digest/account-portability attack/shortcut 계약 테스트 18개: passed
@@ -255,7 +291,7 @@
 | Stage 4 Argo CD | 완료 | 제한된 Git change, reconciliation, shortcut denial 검증됨 |
 | Stage 5 Runtime | 완료 | escape worker, CRI proof, shortcut denial, audit 검증됨 |
 | Stage 6 CSI/IAM | 미구현 | AWS threat model과 tag policy 필요 |
-| Terraform/EKS | 구현 중 | Stage 1 readiness/RCE/SSRF 및 shortcut smoke 완료, Stage 2 연결 필요 |
+| Terraform/EKS | 구현 중 | Stage 1~2 AWS acceptance 완료, Stage 3 composition 필요 |
 
 ## 다음 작업: Terraform/EKS plan 및 Stage 1~5 배포 조합
 

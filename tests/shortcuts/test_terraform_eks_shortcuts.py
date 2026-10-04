@@ -91,6 +91,48 @@ def test_eks_overlay_contains_no_personal_account_or_cluster_binding() -> None:
         assert value not in text
 
 
+def test_stage2_eks_api_egress_has_no_kind_or_vpc_wildcard() -> None:
+    overlay_dir = ROOT / "deploy" / "eks-lab"
+    patch_names = [
+        "stage-02-api-egress-patch.yaml",
+        "modelgate-stage-02-api-egress-patch.yaml",
+    ]
+    patch_documents = [
+        yaml.safe_load((overlay_dir / name).read_text(encoding="utf-8"))
+        for name in patch_names
+    ]
+
+    for patch in patch_documents:
+        egress = patch[0]["value"]
+        cidrs = {
+            destination["ipBlock"]["cidr"]
+            for rule in egress
+            for destination in rule["to"]
+            if "ipBlock" in destination
+        }
+        ports = {
+            port["port"]
+            for rule in egress
+            for port in rule["ports"]
+        }
+        assert cidrs == {"172.20.0.1/32"}
+        assert 443 in ports
+        assert 6443 not in ports
+
+    text = "\n".join(
+        (overlay_dir / name).read_text(encoding="utf-8") for name in patch_names
+    )
+    for forbidden in [
+        "10.96.0.1/32",
+        "172.16.0.0/12",
+        "10.42.0.0/16",
+        "0.0.0.0/0",
+        "13.125.112.89",
+        "43.200.231.144",
+    ]:
+        assert forbidden not in text
+
+
 def test_escape_worker_does_not_share_the_general_node_security_group() -> None:
     main = (TF / "main.tf").read_text(encoding="utf-8")
     network = (TF / "network-security.tf").read_text(encoding="utf-8")

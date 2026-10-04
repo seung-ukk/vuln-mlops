@@ -2,6 +2,7 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
   - ../base
+  - ../../lab/stages/stage-02-rbac
   - coredns-network-policy.yaml
   - ssrf-canary.yaml
 patches:
@@ -11,6 +12,20 @@ patches:
       version: v1
       kind: NetworkPolicy
       name: modelgate
+      namespace: modelgate-lab
+  - path: stage-02-api-egress-patch.yaml
+    target:
+      group: networking.k8s.io
+      version: v1
+      kind: NetworkPolicy
+      name: stage-02-api-egress
+      namespace: stage-02-rbac
+  - path: modelgate-stage-02-api-egress-patch.yaml
+    target:
+      group: networking.k8s.io
+      version: v1
+      kind: NetworkPolicy
+      name: modelgate-stage-02-api-egress
       namespace: modelgate-lab
 images:
   - name: ghcr.io/seung-ukk/vuln-mlops
