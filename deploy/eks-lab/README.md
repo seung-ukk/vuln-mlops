@@ -5,8 +5,9 @@ the base deployment. In particular, it does not add IMDS access or unrestricted
 private-network egress.
 
 The Terraform foundation creates the VPC, EKS control plane, managed add-ons, and
-separate general/escape node groups. Stage 2-5 cluster-specific API CIDRs and the
-EKS runtime-client image will be added by the deployment-composition milestone;
+separate general/escape node groups. The Stage 5 manifest uses the published,
+digest-pinned runtime-client image without mounting a host binary. Stage 2-5
+cluster-specific API CIDRs remain work for the deployment-composition milestone;
 they are intentionally not widened here as a placeholder.
 
 `coredns-network-policy.yaml` is the bootstrap exception required by VPC CNI strict

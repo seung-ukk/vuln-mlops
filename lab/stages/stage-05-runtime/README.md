@@ -27,11 +27,10 @@ container launched by containerd; it is never mounted into the Kubernetes Pod.
 - The container is UID 0 only for Unix-socket DAC access. It is not privileged,
   drops all capabilities, cannot gain privileges, uses seccomp RuntimeDefault, has
   a read-only root filesystem, and receives no ServiceAccount token or network.
-- The local kind harness mounts the reviewed node `crictl` binary read-only into a
-  digest-pinned Debian rootfs. `images/runtime-client` builds the EKS image from the
-  official `crictl` v1.36.0 archive with its reviewed SHA-256 and packages an
-  explicit `/run/stage5/containerd.sock` configuration. After the first GHCR publish,
-  the EKS overlay must pin the resulting image digest and remove the host binary mount.
+- `images/runtime-client` builds the shared kind/EKS image from the official `crictl`
+  v1.36.0 archive with its reviewed SHA-256 and packages an explicit
+  `/run/stage5/containerd.sock` configuration. The Deployment pins the published OCI
+  index digest; no runtime client binary is mounted from the worker host.
 - Argo CD has read-only cache access and may only update/patch the existing
   `runtime-builder`; it cannot create/delete workloads or mutate another name.
 - No AWS identity, CSI resource, production data, reverse shell, or arbitrary

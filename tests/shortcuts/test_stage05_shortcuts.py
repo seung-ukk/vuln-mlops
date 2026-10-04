@@ -34,10 +34,11 @@ def test_admission_fixes_node_socket_image_and_container_shape():
     assert "lab.vuln-mlops/node-role" in expressions and "escape" in expressions
     assert "/run/containerd/containerd.sock" in expressions
     assert "/run/stage5/containerd.sock" in expressions
-    assert "debian:bookworm-slim@sha256:" in expressions
-    assert "volumes.size() == 3" in expressions
-    assert "volumeMounts.size() == 3" in expressions
-    assert "/usr/local/bin/crictl" in expressions
+    assert "ghcr.io/seung-ukk/vuln-mlops-runtime-client@sha256:556d3f" in expressions
+    assert "volumes.size() == 2" in expressions
+    assert "volumeMounts.size() == 2" in expressions
+    assert "/usr/local/bin/crictl" not in expressions
+    assert "runtime-client'" not in expressions
 
 
 def test_privilege_host_namespace_and_serviceaccount_shortcuts_are_denied():
@@ -62,6 +63,7 @@ def test_node_proof_and_aws_credentials_are_not_present_in_manifests():
     assert "/var/lib/vuln-mlops/stage-05-proof" not in manifest_text
     assert "eks.amazonaws.com/role-arn" not in manifest_text
     assert "AWS_ACCESS_KEY_ID" not in manifest_text
+    assert "/usr/local/bin/crictl" not in manifest_text
 
 
 def test_stage5_has_no_ingress_or_egress_network_path():

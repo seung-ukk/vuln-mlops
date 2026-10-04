@@ -5,8 +5,8 @@ from tests.stage2_manifest_helpers import ROOT
 
 STAGE = ROOT / "lab" / "stages" / "stage-05-runtime"
 RUNTIME_IMAGE = (
-    "debian:bookworm-slim@sha256:"
-    "3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251"
+    "ghcr.io/seung-ukk/vuln-mlops-runtime-client@sha256:"
+    "556d3f1837edfcd0da44627a39dbe890822217c66b1beec2d31f5ff6c48a930b"
 )
 
 
@@ -41,16 +41,15 @@ def test_runtime_builder_is_pinned_to_escape_node_and_exact_socket():
     }
     mount = next(v for v in container["volumeMounts"] if v["name"] == "runtime-socket")
     assert mount["mountPath"] == "/run/stage5/containerd.sock"
-    client = next(v for v in pod["volumes"] if v["name"] == "runtime-client")
-    assert client["hostPath"] == {"path": "/usr/local/bin/crictl", "type": "File"}
-    client_mount = next(v for v in container["volumeMounts"] if v["name"] == "runtime-client")
-    assert client_mount == {"name": "runtime-client", "mountPath": "/usr/local/bin/crictl", "readOnly": True}
+    assert {v["name"] for v in pod["volumes"]} == {"runtime-socket", "tmp"}
+    assert {v["name"] for v in container["volumeMounts"]} == {"runtime-socket", "tmp"}
 
 
 def test_git_desired_state_retains_socket_boundary_and_stage_proofs():
     desired = docs("repository/runtime-builder/deployment.yaml")[0]
     template = desired["spec"]["template"]
-    env = {x["name"]: x["value"] for x in template["spec"]["containers"][0]["env"]}
+    container = template["spec"]["containers"][0]
+    env = {x["name"]: x["value"] for x in container["env"]}
 
     assert desired["metadata"]["namespace"] == "stage-05-runtime"
     assert env == {"STAGE4_MODE": "git-controlled", "STAGE5_MODE": "runtime-socket"}
@@ -58,6 +57,7 @@ def test_git_desired_state_retains_socket_boundary_and_stage_proofs():
         "lab.vuln-mlops/stage-04-proof": "FLAG{stage_4_gitops_placeholder}",
         "lab.vuln-mlops/stage-05-ready": "runtime-socket",
     }
+    assert container["image"] == RUNTIME_IMAGE
     assert template["spec"]["volumes"] == docs("runtime-builder-base.yaml")[0]["spec"]["template"]["spec"]["volumes"]
 
 
