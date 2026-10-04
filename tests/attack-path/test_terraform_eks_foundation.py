@@ -5,6 +5,9 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 TF = ROOT / "infra" / "terraform"
+MODELGATE_IMAGE_DIGEST = (
+    "sha256:9953d23e8102114873c3a52eaecd0a2e80d260cb0b7ee09ae348c0af3d66a244"
+)
 
 
 def terraform_text() -> str:
@@ -14,6 +17,35 @@ def terraform_text() -> str:
 def coredns_policy() -> dict:
     path = ROOT / "deploy" / "eks-lab" / "coredns-network-policy.yaml"
     return yaml.safe_load(path.read_text(encoding="utf-8"))
+
+
+def eks_overlay() -> dict:
+    path = ROOT / "deploy" / "eks-lab" / "kustomization.yaml"
+    return yaml.safe_load(path.read_text(encoding="utf-8"))
+
+
+def test_stage1_eks_overlay_pins_the_published_modelgate_image() -> None:
+    overlay = eks_overlay()
+    assert overlay["images"] == [
+        {
+            "name": "ghcr.io/seung-ukk/vuln-mlops",
+            "newName": "ghcr.io/seung-ukk/vuln-mlops",
+            "digest": MODELGATE_IMAGE_DIGEST,
+        }
+    ]
+
+    deployment = yaml.safe_load(
+        (ROOT / "deploy" / "base" / "deployment.yaml").read_text(encoding="utf-8")
+    )
+    containers = deployment["spec"]["template"]["spec"]["containers"]
+    assert {container["name"] for container in containers} == {
+        "api",
+        "mlflow-registry",
+        "validator",
+    }
+    assert {container["image"] for container in containers} == {
+        "ghcr.io/seung-ukk/vuln-mlops:main"
+    }
 
 
 def test_eks_foundation_has_general_and_escape_workers() -> None:

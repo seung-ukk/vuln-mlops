@@ -7,12 +7,13 @@
 
 ## 현재 기준점
 
-- Branch: `codex/eks-runtime-client-pin`
-- Latest merged commit: `00197c9 Merge pull request #2 from seung-ukk/codex/eks-stage1-5-composition`
+- Branch: `codex/eks-stage1-deploy`
+- Latest merged commit: `a2de860 Merge pull request #3 from seung-ukk/codex/eks-runtime-client-pin`
 - Repository: `https://github.com/seung-ukk/vuln-mlops`
 - Container: `ghcr.io/seung-ukk/vuln-mlops`
-- 현재 작업 트리: 게시된 runtime-client OCI digest를 Stage 5 초기/desired Deployment와
-  admission policy에 고정하고 worker host의 `crictl` binary mount 제거, 미커밋
+- 현재 작업 트리: 게시된 ModelGate OCI digest를 EKS Stage 1 overlay에 고정하고 개인
+  AWS 계정 EKS에서 readiness/health/RCE/redirect SSRF를 검증했으며, EKS 전용 synthetic
+  SSRF canary와 제한된 NetworkPolicy 경로를 추가해 로컬 계약/렌더 검증 완료, 미커밋
 
 ## 완료된 작업
 
@@ -29,6 +30,10 @@
 
 - MLflow webhook redirect SSRF 경로
 - Docker-internal synthetic canary
+- EKS `stage-01-canary` restricted namespace와 ClusterIP-only synthetic canary
+- ModelGate Pod에서 정확한 namespace/Pod label/TCP 9000으로만 허용한 양방향
+  NetworkPolicy 계약
+- `compose` 또는 `eks` 고정 이름만 받으며 임의 내부 URL을 받지 않는 PoC target 선택
 - marker-only safe PoC
 - 외부 MLflow 노출 없이 ModelGate API를 통한 검증
 
@@ -127,6 +132,42 @@
   `sha256:556d3f1837edfcd0da44627a39dbe890822217c66b1beec2d31f5ff6c48a930b` 고정
 - Stage 5 초기/desired Deployment가 같은 digest를 사용하며 host `crictl` mount 제거
 
+### EKS Stage 1 deployment
+
+- ModelGate `main` OCI index digest
+  `sha256:9953d23e8102114873c3a52eaecd0a2e80d260cb0b7ee09ae348c0af3d66a244` 확인
+- EKS overlay에서 api, mlflow-registry, validator 세 컨테이너를 동일 digest로 치환
+- base 개발 tag는 유지하되 AWS 배포에서는 mutable tag 사용 금지
+- EKS 1.36 `ACTIVE`, general node 2대와 escape node 1대 `Ready` 확인
+- escape node만 `lab.vuln-mlops/escape=true:NoSchedule` taint 보유 확인
+- Stage 1 전체 manifest client dry-run 통과
+- EKS overlay에는 개인 계정 ID, cluster/operator ARN, subnet/security-group ID 및
+  credential을 넣지 않는 account-portability negative test 추가
+- 팀 계정 전환 시 별도 Terraform state/tfvars와 임시 deployment role, 승인된 operator
+  `/32`만 교체하고 Kubernetes manifest와 public GHCR digest는 재사용
+- 개인 계정 EKS에서 namespace, ServiceAccount, ClusterIP Service, Deployment,
+  NetworkPolicy 실제 apply 완료
+- ModelGate Pod `3/3 Running`, restart 0, general node 배치 및 escape taint 회피 확인
+- Deployment와 실행 container 세 개 모두 고정 OCI index digest 사용 확인
+- `kubectl port-forward`를 통한 `/healthz`와 `/readyz` 응답 확인
+- 운영자 격리 CPython 3.11.17 환경에서 MLflow 3.13.0, statsmodels 0.14.5로
+  외부 API-only marker RCE smoke 실행
+- artifact upload → model registration → validator load → UUID proof 흐름 성공,
+  `validator marker observed` 확인 후에도 Pod `3/3 Running`, restart 0 유지
+- EKS synthetic canary는 ServiceAccount token, egress, Ingress/LoadBalancer/NodePort,
+  host namespace/hostPath/runtime socket 없이 구성
+- Kustomize render에서 ModelGate→canary TCP 9000 egress 패치와 canary→ModelGate-only
+  ingress가 정확히 합성되고 canary image도 같은 OCI index digest로 치환됨을 확인
+- 개인 계정 EKS에서 public HTTPS first hop → 고정 cluster-local canary redirect SSRF가
+  `MODELGATE_INTERNAL_SSRF_PROOF`를 반환하는 intended path 확인
+- canary access log의 `/canary` 요청 출발지 `10.42.30.104`가 ModelGate Pod IP와 일치하고,
+  canary Pod는 general node에서 `1/1 Running`, restart 0임을 확인
+- 비인가 Pod의 FQDN direct-canary 시도는 VPC CNI strict-mode DNS 단계에서 timeout으로
+  거부됨을 확인
+- 테스트 Pod의 egress를 canary namespace/Pod/TCP 9000으로 명시 허용하고 DNS를 우회한
+  ClusterIP 직접 접근도 connection timeout으로 거부되어 canary ingress selector 경계 확인
+- shortcut smoke용 임시 Pod와 NetworkPolicy 삭제 완료
+
 ### Delivery
 
 - GitHub Actions Python test
@@ -137,7 +178,7 @@
 
 ## 최근 검증 결과
 
-- Python tests: `70 passed`
+- Python tests: `82 passed`
 - Python compileall: passed
 - Docker Compose config validation: passed
 - Terraform format: passed
@@ -159,6 +200,20 @@
 - 실제 EKS node 3대 `Ready`: general 2대, escape 1대와 escape `NoSchedule` taint 확인
 - 실제 EC2 ENI: general node는 general SG만, escape node는 escape SG만 연결됨을 확인
 - EKS Stage 1 overlay Kustomize render: passed
+- EKS Stage 1 SSRF intended/shortcut 정적 계약 테스트 9개: passed
+- EKS Stage 1 canary Kustomize patch/render 및 digest 치환: passed
+- 실제 EKS Stage 1 사전 점검: cluster/add-on/node/taint 정상, client dry-run passed
+- ModelGate GHCR OCI index anonymous inspect와 digest 확인: passed
+- Stage 1 EKS digest/account-portability attack/shortcut 계약 테스트 18개: passed
+- 실제 EKS Stage 1 rollout: passed (`3/3 Running`, general node, restart 0)
+- 실제 EKS Stage 1 `/healthz`: `{"status":"ok","version":"0.1.0"}`
+- 실제 EKS Stage 1 `/readyz`: `{"status":"ready"}`
+- 실제 EKS Stage 1 marker-only RCE: validation `succeeded`, fixed proof evidence verified
+- RCE 이후 validator 로그: start/success metadata만 기록, credential 또는 proof 내용 없음
+- 실제 EKS Stage 1 redirect SSRF: fixed cluster-local target에서 synthetic canary proof 확인
+- canary access log: ModelGate Pod IP에서 발생한 `GET /canary` 200 확인
+- 비인가 Pod의 canary FQDN 직접 접근: DNS resolution timeout으로 denied
+- 비인가 Pod의 canary ClusterIP 직접 접근: explicit egress 허용 후에도 ingress에서 denied
 - Stage 5 EKS runtime-client local image build and runtime checks: passed
 - GHCR runtime-client anonymous digest pull, `crictl version v1.36.0`, 기본 socket 설정: passed
 - digest-pinned Stage 5 Kustomize render와 attack/shortcut 계약 테스트 15개: passed
@@ -187,7 +242,7 @@
 - RCE validation status: `succeeded`
 - test listener cleanup on ports 5000/8080: verified
 - PR #2 checks: test/container/runtime-client succeeded
-- main merge commit `00197c9` GitHub Actions run #8: succeeded
+- main merge commit `a2de860` GitHub Actions run #10: succeeded
 
 ## 현재 구현 상태
 
@@ -200,7 +255,7 @@
 | Stage 4 Argo CD | 완료 | 제한된 Git change, reconciliation, shortcut denial 검증됨 |
 | Stage 5 Runtime | 완료 | escape worker, CRI proof, shortcut denial, audit 검증됨 |
 | Stage 6 CSI/IAM | 미구현 | AWS threat model과 tag policy 필요 |
-| Terraform/EKS | 구현 중 | bootstrap과 runtime-client publish/digest pin 완료, Stage 1~5 배포 조합 필요 |
+| Terraform/EKS | 구현 중 | Stage 1 readiness/RCE/SSRF 및 shortcut smoke 완료, Stage 2 연결 필요 |
 
 ## 다음 작업: Terraform/EKS plan 및 Stage 1~5 배포 조합
 
@@ -255,8 +310,12 @@ boundary를 확정한 뒤 추가한다.
   end-to-end smoke는 아직 실행하지 않았다.
 - 배포별 무작위 Flag 발급, hash 기반 채점, reset/reissue 서비스는 없다. 현재 proof와
   credential은 local lab용 placeholder/synthetic 값이다.
-- Stage 2~5 checkpoint는 PR #1, Terraform foundation과 runtime-client image는 PR #2로
-  main에 병합되었고 각각 CI가 통과했다. 현재 digest pin 후속 변경은 미커밋이다.
+- 현재 `poc/rce_marker.py`의 AWS smoke는 운영자 로컬 Python 3.11 격리 환경에서 실행한다.
+  팀 계정 참가자 배포 전에는 digest-pinned PoC runner 이미지 또는 사전 생성된 안전한
+  payload/curl 흐름을 제공해 참가자 로컬 Python 의존성과 `kubectl exec` 우회를 제거한다.
+- Stage 2~5 checkpoint는 PR #1, Terraform foundation과 runtime-client image는 PR #2,
+  Stage 5 runtime-client digest pin은 PR #3으로 main에 병합되었고 CI가 통과했다. 현재
+  Stage 1 ModelGate digest pin과 AWS 배포 준비 변경은 미커밋이다.
 
 ## 알려진 제약과 주의사항
 

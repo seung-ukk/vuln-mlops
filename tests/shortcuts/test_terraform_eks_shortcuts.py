@@ -61,6 +61,36 @@ def test_eks_overlay_does_not_restore_imds_or_private_wildcards() -> None:
     assert "0.0.0.0/0" not in overlay
 
 
+def test_stage1_eks_image_cannot_float_to_a_tag() -> None:
+    overlay = yaml.safe_load(
+        (ROOT / "deploy" / "eks-lab" / "kustomization.yaml").read_text(encoding="utf-8")
+    )
+    image = overlay["images"][0]
+    assert "newTag" not in image
+    assert image["digest"].startswith("sha256:")
+    assert len(image["digest"]) == len("sha256:") + 64
+    assert image["digest"] != "sha256:" + ("0" * 64)
+
+
+def test_eks_overlay_contains_no_personal_account_or_cluster_binding() -> None:
+    overlay_dir = ROOT / "deploy" / "eks-lab"
+    text = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in sorted(overlay_dir.rglob("*"))
+        if path.is_file()
+    )
+    forbidden = [
+        "707605822656",
+        "vuln-mlops-personal-lab",
+        "cluster-operator",
+        "arn:aws:",
+        "AWS_ACCESS_KEY_ID",
+        "AWS_SECRET_ACCESS_KEY",
+    ]
+    for value in forbidden:
+        assert value not in text
+
+
 def test_escape_worker_does_not_share_the_general_node_security_group() -> None:
     main = (TF / "main.tf").read_text(encoding="utf-8")
     network = (TF / "network-security.tf").read_text(encoding="utf-8")

@@ -3,3 +3,16 @@ kind: Kustomization
 resources:
   - ../base
   - coredns-network-policy.yaml
+  - ssrf-canary.yaml
+patches:
+  - path: modelgate-canary-egress-patch.yaml
+    target:
+      group: networking.k8s.io
+      version: v1
+      kind: NetworkPolicy
+      name: modelgate
+      namespace: modelgate-lab
+images:
+  - name: ghcr.io/seung-ukk/vuln-mlops
+    newName: ghcr.io/seung-ukk/vuln-mlops
+    digest: sha256:9953d23e8102114873c3a52eaecd0a2e80d260cb0b7ee09ae348c0af3d66a244
