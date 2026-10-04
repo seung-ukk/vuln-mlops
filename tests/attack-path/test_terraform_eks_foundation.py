@@ -1,0 +1,89 @@
+from pathlib import Path
+
+import yaml
+
+
+ROOT = Path(__file__).resolve().parents[2]
+TF = ROOT / "infra" / "terraform"
+
+
+def terraform_text() -> str:
+    return "\n".join(path.read_text(encoding="utf-8") for path in sorted(TF.glob("*.tf")))
+
+
+def coredns_policy() -> dict:
+    path = ROOT / "deploy" / "eks-lab" / "coredns-network-policy.yaml"
+    return yaml.safe_load(path.read_text(encoding="utf-8"))
+
+
+def test_eks_foundation_has_general_and_escape_workers() -> None:
+    text = terraform_text()
+    assert 'general = {' in text
+    assert 'escape = {' in text
+    assert '"lab.vuln-mlops/node-role" = "general"' in text
+    assert '"lab.vuln-mlops/node-role" = "escape"' in text
+    assert 'key    = "lab.vuln-mlops/escape"' in text
+    assert 'effect = "NO_SCHEDULE"' in text
+    assert 'iam_role_name              = "${var.lab_id}-general-node"' in text
+    assert 'iam_role_name              = "${var.lab_id}-escape-node"' in text
+    assert text.count("iam_role_use_name_prefix   = false") == 2
+    assert "vpc_security_group_ids     = [aws_security_group.general_nodes.id]" in text
+    assert "vpc_security_group_ids     = [aws_security_group.escape_nodes.id]" in text
+
+
+def test_control_plane_can_reach_both_node_boundaries() -> None:
+    network = (TF / "network-security.tf").read_text(encoding="utf-8")
+    assert 'general_kubelet = { security_group_id = aws_security_group.general_nodes.id, port = 10250 }' in network
+    assert 'escape_kubelet  = { security_group_id = aws_security_group.escape_nodes.id, port = 10250 }' in network
+    assert 'resource "aws_vpc_security_group_ingress_rule" "cluster_api_from_nodes"' in network
+    assert 'from_port                    = 443' in network
+
+
+def test_cluster_uses_access_entry_and_managed_addons() -> None:
+    text = terraform_text()
+    assert 'authentication_mode' in text and '"API"' in text
+    assert "enable_cluster_creator_admin_permissions" in text
+    assert 'principal_arn = aws_iam_role.cluster_operator.arn' in text
+    assert "enable_irsa                              = false" in text
+    for addon in ["coredns", "eks-pod-identity-agent", "kube-proxy", "vpc-cni"]:
+        assert addon in text
+
+
+def test_private_workers_and_network_policy_are_enabled() -> None:
+    text = terraform_text()
+    assert "subnet_ids               = module.vpc.private_subnets" in text
+    assert 'enableNetworkPolicy = "true"' in text
+    assert 'NETWORK_POLICY_ENFORCING_MODE = "strict"' in text
+    assert "iam_role_attach_cni_policy = false" in text
+
+
+def test_coredns_bootstrap_policy_allows_dns_api_and_health_probes() -> None:
+    policy = coredns_policy()
+    assert policy["metadata"]["namespace"] == "kube-system"
+    assert policy["spec"]["podSelector"]["matchLabels"] == {
+        "eks.amazonaws.com/component": "coredns",
+        "k8s-app": "kube-dns",
+    }
+    ingress = {(rule["protocol"], rule["port"]) for rule in policy["spec"]["ingress"][0]["ports"]}
+    egress = {(rule["protocol"], rule["port"]) for rule in policy["spec"]["egress"][0]["ports"]}
+    assert ingress == {("UDP", 53), ("TCP", 53), ("TCP", 8080), ("TCP", 8181), ("TCP", 9153)}
+    assert egress == {("UDP", 53), ("TCP", 53), ("TCP", 443)}
+
+
+def test_bootstrap_orders_strict_network_policy_before_coredns() -> None:
+    variables = (TF / "variables.tf").read_text(encoding="utf-8")
+    main = (TF / "main.tf").read_text(encoding="utf-8")
+    script = (TF / "bootstrap.sh").read_text(encoding="utf-8")
+
+    assert 'variable "enable_coredns_addon"' in variables
+    assert "default     = true" in variables.split('variable "enable_coredns_addon"', 1)[1]
+    assert "var.enable_coredns_addon ?" in main
+
+    foundation = script.index("-var=enable_coredns_addon=false")
+    policy = script.index('kubectl apply -f "$COREDNS_POLICY"')
+    coredns = script.index("-var=enable_coredns_addon=true")
+    final = script.rindex("-var=enable_coredns_addon=true")
+    assert foundation < policy < coredns < final
+    assert 'AWS_REGION="$(tf output -raw region)"' in script
+    assert "aws eks wait addon-active" in script
+    assert "Terraform has no drift" in script

@@ -7,3 +7,17 @@ __pycache__/
 *.db
 dist/
 build/
+
+# Terraform local artifacts and account-specific inputs
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+crash.*.log
+*.auto.tfvars
+*.auto.tfvars.json
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json

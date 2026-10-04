@@ -1,0 +1,36 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-coredns-bootstrap
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/part-of: vuln-mlops
+    lab.vuln-mlops/boundary: eks-foundation
+spec:
+  podSelector:
+    matchLabels:
+      eks.amazonaws.com/component: coredns
+      k8s-app: kube-dns
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+        - protocol: TCP
+          port: 8080
+        - protocol: TCP
+          port: 8181
+        - protocol: TCP
+          port: 9153
+  egress:
+    - ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+        - protocol: TCP
+          port: 443

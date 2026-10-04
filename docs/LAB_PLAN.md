@@ -121,11 +121,13 @@ EBS/EFS resource에만 접근하고 Final Flag를 얻는다. 일반 application 
 ### AWS 통합 환경
 
 - 전용 AWS 계정 또는 완전히 격리된 lab account
-- EKS managed node group
-- private worker node
+- 2개 이상의 AZ에 걸친 전용 VPC와 private worker subnet
+- 일반 workload와 Stage 5용 escape EKS managed node group 분리
+- escape node group의 고정 label/taint와 1-node 상한
 - public ALB는 HTTPS만 사용하고 팀원 공인 IP `/32`만 허용
 - EKS API endpoint는 private 또는 제한된 public CIDR 사용
-- Stage 5용 별도 node group과 taint/toleration
+- EKS Access Entry API와 별도 operator role 사용
+- VPC CNI NetworkPolicy strict mode와 CNI용 Pod Identity 사용
 - EKS Pod Identity 또는 검토된 IRSA 사용
 - 태그 기반 IAM resource restriction
 - CloudTrail, EKS audit log 및 exercise log 보존
