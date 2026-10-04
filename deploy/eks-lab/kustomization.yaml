@@ -4,6 +4,7 @@ resources:
   - ../base
   - ../../lab/stages/stage-02-rbac
   - ../../lab/stages/stage-03-monitoring
+  - stage-04
   - coredns-network-policy.yaml
   - ssrf-canary.yaml
   - stage-03-prometheus-api-egress.yaml

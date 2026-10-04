@@ -19,6 +19,11 @@ spec:
             - {name: GITEA__server__DISABLE_SSH, value: "true"}
             - {name: GITEA__service__DISABLE_REGISTRATION, value: "true"}
             - {name: GITEA__security__INSTALL_LOCK, value: "true"}
+          readinessProbe: {httpGet: {path: /api/healthz, port: http}, initialDelaySeconds: 5, periodSeconds: 5}
+          livenessProbe: {httpGet: {path: /api/healthz, port: http}, initialDelaySeconds: 20, periodSeconds: 10}
+          resources:
+            requests: {cpu: 100m, memory: 256Mi}
+            limits: {cpu: 1, memory: 1Gi}
           securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: ["ALL"]}}
           volumeMounts:
             - {name: data, mountPath: /var/lib/gitea}

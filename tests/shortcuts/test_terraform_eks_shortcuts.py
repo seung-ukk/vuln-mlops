@@ -173,6 +173,44 @@ def test_stage3_eks_api_egress_is_prometheus_only() -> None:
         assert forbidden not in text
 
 
+def test_stage4_eks_api_egress_is_argocd_controller_only() -> None:
+    overlay_dir = ROOT / "deploy" / "eks-lab" / "stage-04"
+    internal_patch = yaml.safe_load(
+        (overlay_dir / "internal-egress-patch.yaml").read_text(encoding="utf-8")
+    )
+    common_egress = internal_patch[0]["value"]
+    assert all(
+        "ipBlock" not in destination
+        for rule in common_egress
+        for destination in rule["to"]
+    )
+
+    api_policy = yaml.safe_load(
+        (overlay_dir / "controller-api-egress.yaml").read_text(encoding="utf-8")
+    )
+    text = "\n".join(
+        (overlay_dir / name).read_text(encoding="utf-8")
+        for name in [
+            "internal-egress-patch.yaml",
+            "controller-api-egress.yaml",
+        ]
+    )
+    assert api_policy["spec"]["podSelector"] == {
+        "matchLabels": {"app.kubernetes.io/name": "argocd-application-controller"}
+    }
+    assert "172.20.0.1/32" in text
+    for forbidden in [
+        "10.96.0.1/32",
+        "172.16.0.0/12",
+        "10.42.0.0/16",
+        "0.0.0.0/0",
+        "6443",
+        "169.254.169.254",
+        "arn:aws:",
+    ]:
+        assert forbidden not in text
+
+
 def test_escape_worker_does_not_share_the_general_node_security_group() -> None:
     main = (TF / "main.tf").read_text(encoding="utf-8")
     network = (TF / "network-security.tf").read_text(encoding="utf-8")

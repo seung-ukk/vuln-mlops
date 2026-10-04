@@ -43,3 +43,27 @@ def test_git_receive_hook_limits_branch_and_path():
     assert 'refs/heads/stage4-lab' in hook
     assert 'runtime-builder/*' in hook
     assert 'path denied' in hook
+
+def test_unused_argocd_entrypoints_are_scaled_down_and_redis_has_no_api_client():
+    kustomization = yaml.safe_load((STAGE / "kustomization.yaml").read_text(encoding="utf-8"))
+    patches = kustomization["patches"]
+
+    scaled_down = {
+        item["target"]["name"]
+        for item in patches
+        if item["target"].get("kind") == "Deployment"
+        and "replicas, value: 0" in item.get("patch", "")
+    }
+    assert {
+        "argocd-applicationset-controller",
+        "argocd-dex-server",
+        "argocd-notifications-controller",
+        "argocd-server",
+    }.issubset(scaled_down)
+
+    redis_patch = next(
+        item for item in patches if item["target"].get("name") == "argocd-redis"
+    )
+    assert "automountServiceAccountToken" in redis_patch["patch"]
+    assert "value: false" in redis_patch["patch"]
+    assert "path: /spec/template/spec/initContainers" in redis_patch["patch"]

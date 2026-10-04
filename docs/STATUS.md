@@ -11,11 +11,10 @@
 - Latest merged commit: `a2de860 Merge pull request #3 from seung-ukk/codex/eks-runtime-client-pin`
 - Repository: `https://github.com/seung-ukk/vuln-mlops`
 - Container: `ghcr.io/seung-ukk/vuln-mlops`
-- 현재 작업 트리: Stage 1 AWS attack path는 commit `a21c1c8`, Stage 2 EKS RBAC chain은
-  commit `0314462`로 보존하고 원격 branch에 push 완료. Stage 3 monitoring stack을 통합
-  EKS overlay에 추가하고 Prometheus 전용 API Service `/32` egress, probes/resources,
-  datasource discovery, synthetic credential exchange와 shortcut denial을 실제 AWS에서
-  검증 완료했으며 커밋 전 상태
+- 현재 작업 트리: Stage 1~3 EKS attack path와 AWS acceptance를 commit `a21c1c8`,
+  `0314462`, `1f64732`로 보존하고 원격 branch에 push 완료. Stage 4 전용 server-side EKS
+  overlay를 추가하고 제한 Git push → Argo reconciliation → synthetic proof, RBAC/admission
+  shortcut denial과 CloudWatch audit까지 실제 AWS에서 검증 완료했으며 커밋 전 상태
 
 ## 완료된 작업
 
@@ -224,6 +223,42 @@
 - 현재 client는 운영자가 생성하고 `exec`하는 acceptance harness다. 팀 실습 전에는
   operator `exec` 없이 Stage 2 output identity에서 이어지는 참가자용 handoff가 필요
 
+### EKS Stage 4 composition
+
+- Argo CD CRD만 server-side apply하고 기존 Stage 1~3 field ownership은 건드리지 않도록
+  `deploy/eks-lab/stage-04` 하위 overlay를 별도 적용 단위로 구성
+- 상위 EKS overlay는 Stage 1~4 전체 구성을 계속 렌더링
+- Stage 4 공통 NetworkPolicy에서 kind 전용 API CIDR을 제거하고 Argo CD application
+  controller만 `172.20.0.1/32:443`에 접근하는 별도 policy 추가
+- Redis 8.2.3-alpine OCI index를
+  `sha256:08ad0b1d280850169a790dba1393ff7a90aef951fc19632cf4d3ce4f78e679ba`로 고정
+- Argo CD 3.5.3, Gitea 1.27.3-rootless, Redis 8.2.3-alpine, nginx-unprivileged 1.29.1
+  pinned image가 모두 `linux/amd64` manifest를 제공함을 registry에서 확인
+- 사용하지 않는 Argo CD server/Dex/ApplicationSet/notification entrypoint는 replica 0
+- Redis는 synthetic password Secret을 사전 생성해 upstream API-dependent initializer를
+  제거하고 ServiceAccount token automount와 Kubernetes API egress를 비활성화
+- Gitea와 baseline/desired runtime-builder에 probes와 requests/limits 추가
+- Stage 4 EKS 전용/전체 통합 Kustomize render와 관련 attack/shortcut 테스트 35개 통과
+- 첫 실제 apply에서 upstream Redis `secret-init`이 token 비활성화 때문에 실패하고
+  controller/repo-server가 Redis Secret을 기다리는 현상을 확인
+- Redis 인증을 synthetic Secret으로 사전 생성하고 API-dependent init container를 제거해
+  token/API egress 없이 복구; 핵심 Pod 5개 `1/1 Running`, restart 0 확인
+- Gitea synthetic 사용자/repository와 pre-receive hook을 bootstrap하고 baseline branch를
+  Argo에서 `Synced/Healthy`로 확인
+- `main` branch와 repository root의 `forbidden.txt` push는 hook이 거부
+- 허용된 `stage4-lab:runtime-builder/` 변경 commit
+  `e6755e2f2fb4bc26d49150f36efa359f3439c640`을 Argo CD가 reconcile
+- Application `Synced/Healthy`, live Deployment `mode=git-controlled`, pinned image와
+  `FLAG{stage_4_gitops_placeholder}` proof 확인
+- Argo controller는 기존 `runtime-builder` patch/update만 허용되고 workload create/delete,
+  다른 Deployment patch, Secret/ServiceAccount/RBAC create는 거부
+- privileged와 hostPath dry-run은 Kubernetes validation/Pod Security/Stage 4 admission에서 거부
+- live runtime-builder에 ServiceAccount token, hostPath, privileged, Stage 5 nodeSelector 없음 확인
+- CloudWatch EKS audit에서 Argo application controller SA의 `runtime-builder` Deployment
+  patch `ResponseComplete 200` 확인
+- Gitea는 `emptyDir` 기반이므로 Pod 재생성 뒤 사용자/repository/hook bootstrap을 다시
+  실행해야 하며 팀 실습용 자동 bootstrap/reset은 아직 필요
+
 ### Delivery
 
 - GitHub Actions Python test
@@ -267,6 +302,16 @@
 - 실제 EKS Grafana datasource discovery → broker credential exchange: passed
 - 실제 EKS Stage 3 arbitrary reference/direct Prometheus/RBAC/external exposure shortcuts: denied
 - 실제 EKS Stage 3 CloudWatch audit namespace-scoped discovery watch `200`: verified
+- Stage 1~4 통합 EKS Kustomize render: passed
+- Stage 4 분리 server-side EKS overlay render: passed
+- EKS Stage 4 controller-only API egress와 Redis digest 계약 포함 대상 테스트 35개: passed
+- Stage 4 pinned image `linux/amd64` availability와 EKS 1.36 CRD/admission dry-run: verified
+- 실제 EKS Stage 4 핵심 Pod rollout: passed (5개 `1/1 Running`, general node, restart 0)
+- 실제 EKS Stage 4 baseline 및 Git-controlled revision: `Synced/Healthy`
+- 실제 EKS Stage 4 wrong branch/path push: denied
+- 실제 EKS Stage 4 Git commit → Argo reconciliation → synthetic proof: passed
+- 실제 EKS Stage 4 controller RBAC 및 privileged/hostPath shortcuts: denied
+- 실제 EKS Stage 4 CloudWatch audit controller patch `200`: verified
 - 실제 EKS Stage 2 RBAC positive/negative matrix: passed
 - 실제 EKS Stage 2 admission shortcut 7개: denied
 - 실제 EKS Stage 2 Job → monitoring-runner → synthetic Flag: passed
@@ -324,17 +369,17 @@
 | Stage 4 Argo CD | 완료 | 제한된 Git change, reconciliation, shortcut denial 검증됨 |
 | Stage 5 Runtime | 완료 | escape worker, CRI proof, shortcut denial, audit 검증됨 |
 | Stage 6 CSI/IAM | 미구현 | AWS threat model과 tag policy 필요 |
-| Terraform/EKS | 구현 중 | Stage 1~3 AWS acceptance 완료, Stage 4 composition 필요 |
+| Terraform/EKS | 구현 중 | Stage 1~4 AWS acceptance 완료, Stage 5 composition 필요 |
 
 ## 다음 작업: Terraform/EKS plan 및 Stage 1~5 배포 조합
 
 Terraform foundation의 첫 AWS apply, node/ENI 경계, strict NetworkPolicy와 CoreDNS 복구,
 최종 no-drift까지 확인했다. `bootstrap.sh`는 clean deployment에서 CoreDNS add-on보다
 bootstrap NetworkPolicy를 먼저 적용하도록 두 단계로 구성했고, 현재 cluster에서 중단 후
-재실행 경로를 검증했다. Stage 1~3 AWS acceptance를 완료했다. 다음 작업은 Stage 4 GitOps
-구성을 통합 EKS overlay에 추가하고 repository/Argo reconciliation 경계를 실제 cluster에서
-검증하는 것이다. 이후 Stage 5 composition을 추가한다. Stage 6 CSI/IAM은 별도 AWS threat
-model과 tag boundary를 확정한 뒤 추가한다.
+재실행 경로를 검증했다. Stage 1~4 AWS acceptance를 완료했다. 다음 작업은 Stage 5 runtime
+socket 구성을 통합 EKS overlay에 추가하고 전용 escape node, runtime-client, socket mount와
+다른 node/workload shortcut denial을 실제 cluster에서 검증하는 것이다. Stage 6 CSI/IAM은
+별도 AWS threat model과 tag boundary를 확정한 뒤 추가한다.
 
 ### Terraform 시작 전 유지 조건
 
@@ -372,8 +417,9 @@ model과 tag boundary를 확정한 뒤 추가한다.
   않았다.
 - Stage 1부터 Stage 5까지를 한 명령으로 배포하고 전체 체인을 연속 실행하는 acceptance
   harness는 없다. 현재 Stage 2~5는 Stage별 kind smoke로 검증한다.
-- Stage별 base Kustomization은 서로 독립적이며 통합 EKS overlay는 현재 Stage 1~3까지만
-  배포 단위로 조합한다. Stage 4~5 composition은 아직 추가하지 않았다.
+- Stage별 base Kustomization은 서로 독립적이며 통합 EKS overlay는 현재 Stage 1~4까지
+  조합한다. Stage 4는 CRD 때문에 별도 server-side 적용 단위를 사용하며 Stage 5 composition은
+  아직 추가하지 않았다.
 - Stage 1 application deployment와 Stage 2~5 overlay를 하나의 clean cluster에서 연결한
   end-to-end smoke는 아직 실행하지 않았다.
 - 배포별 무작위 Flag 발급, hash 기반 채점, reset/reissue 서비스는 없다. 현재 proof와
@@ -383,8 +429,9 @@ model과 tag boundary를 확정한 뒤 추가한다.
   payload/curl 흐름을 제공해 참가자 로컬 Python 의존성과 `kubectl exec` 우회를 제거한다.
 - Stage 2~5 checkpoint는 PR #1, Terraform foundation과 runtime-client image는 PR #2,
   Stage 5 runtime-client digest pin은 PR #3으로 main에 병합되었고 CI가 통과했다. 현재
-  branch에는 Stage 1 commit `a21c1c8`, Stage 2 commit `0314462`가 원격에 보존되었고
-  Stage 3 EKS composition과 AWS acceptance 기록은 미커밋 상태다.
+  branch에는 Stage 1 commit `a21c1c8`, Stage 2 commit `0314462`, Stage 3 commit
+  `1f64732`가 원격에 보존되었고 Stage 4 EKS composition과 AWS acceptance 기록은
+  미커밋 상태다.
 
 ## 알려진 제약과 주의사항
 

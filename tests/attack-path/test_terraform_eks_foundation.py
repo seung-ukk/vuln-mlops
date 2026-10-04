@@ -118,6 +118,44 @@ def test_eks_overlay_composes_stage3_with_prometheus_only_api_egress() -> None:
     ]
 
 
+def test_eks_overlay_composes_stage4_with_controller_only_api_egress() -> None:
+    overlay = eks_overlay()
+    assert "stage-04" in overlay["resources"]
+
+    stage4_dir = ROOT / "deploy" / "eks-lab" / "stage-04"
+    stage4_overlay = yaml.safe_load(
+        (stage4_dir / "kustomization.yaml").read_text(encoding="utf-8")
+    )
+    assert "../../../lab/stages/stage-04-gitops" in stage4_overlay["resources"]
+    assert "controller-api-egress.yaml" in stage4_overlay["resources"]
+
+    internal_patch = next(
+        item
+        for item in stage4_overlay["patches"]
+        if item["path"] == "internal-egress-patch.yaml"
+    )
+    assert internal_patch["target"] == {
+        "group": "networking.k8s.io",
+        "version": "v1",
+        "kind": "NetworkPolicy",
+        "name": "stage-04-internal",
+        "namespace": "stage-04-gitops",
+    }
+
+    api_policy = yaml.safe_load(
+        (stage4_dir / "controller-api-egress.yaml").read_text(encoding="utf-8")
+    )
+    assert api_policy["spec"]["podSelector"]["matchLabels"] == {
+        "app.kubernetes.io/name": "argocd-application-controller"
+    }
+    assert api_policy["spec"]["egress"] == [
+        {
+            "to": [{"ipBlock": {"cidr": "172.20.0.1/32"}}],
+            "ports": [{"protocol": "TCP", "port": 443}],
+        }
+    ]
+
+
 def test_eks_foundation_has_general_and_escape_workers() -> None:
     text = terraform_text()
     assert 'general = {' in text

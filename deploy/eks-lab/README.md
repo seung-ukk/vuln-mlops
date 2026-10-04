@@ -42,7 +42,19 @@ the Prometheus Pod and grants Kubernetes discovery access to `172.20.0.1/32` on 
 ServiceAccount token. All Stage 3 Services remain cluster-internal. AWS acceptance
 used an operator-created temporary client Pod to exercise the datasource and broker
 chain and removed it afterward; a participant-facing handoff that does not require
-operator `exec` is still pending. Stage 4-5 composition is also still pending.
+operator `exec` is still pending.
+
+Stage 4 uses its own `stage-04/` EKS overlay because the vendored Argo CD CRDs require
+server-side apply. This keeps the existing Stage 1-3 field ownership untouched while
+the parent overlay still renders the complete Stage 1-4 composition. The common
+Stage 4 policy permits only same-namespace and DNS traffic; a separate policy grants
+only the Argo CD application controller access to `172.20.0.1/32` on TCP 443. Redis is
+pinned to a reviewed OCI index digest and uses a synthetic pre-created password so its
+upstream API-dependent secret initializer and ServiceAccount token can be removed.
+Unused Argo CD entrypoints are scaled to zero, and Gitea remains ClusterIP-only.
+AWS acceptance verified the restricted Git push, Argo reconciliation, admission/RBAC
+denials, and audit evidence. Gitea data remains ephemeral and must be bootstrapped
+again after its Pod is recreated. Stage 5 composition is still pending.
 
 `coredns-network-policy.yaml` is the bootstrap exception required by VPC CNI strict
 mode. It selects only the managed CoreDNS Pods and permits DNS, Kubernetes API, probe,
