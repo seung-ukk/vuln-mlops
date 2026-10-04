@@ -1,0 +1,42 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../base
+  - ../../../lab/stages/stage-02-rbac
+  - ../../../lab/stages/stage-03-monitoring
+  - coredns-network-policy.yaml
+  - ssrf-canary.yaml
+  - stage-03-prometheus-api-egress.yaml
+patches:
+  - path: modelgate-canary-egress-patch.yaml
+    target:
+      group: networking.k8s.io
+      version: v1
+      kind: NetworkPolicy
+      name: modelgate
+      namespace: modelgate-lab
+  - path: stage-02-api-egress-patch.yaml
+    target:
+      group: networking.k8s.io
+      version: v1
+      kind: NetworkPolicy
+      name: stage-02-api-egress
+      namespace: stage-02-rbac
+  - path: modelgate-stage-02-api-egress-patch.yaml
+    target:
+      group: networking.k8s.io
+      version: v1
+      kind: NetworkPolicy
+      name: modelgate-stage-02-api-egress
+      namespace: modelgate-lab
+  - path: stage-03-monitoring-flows-patch.yaml
+    target:
+      group: networking.k8s.io
+      version: v1
+      kind: NetworkPolicy
+      name: monitoring-flows
+      namespace: stage-03-monitoring
+images:
+  - name: ghcr.io/seung-ukk/vuln-mlops
+    newName: ghcr.io/seung-ukk/vuln-mlops
+    digest: sha256:9953d23e8102114873c3a52eaecd0a2e80d260cb0b7ee09ae348c0af3d66a244

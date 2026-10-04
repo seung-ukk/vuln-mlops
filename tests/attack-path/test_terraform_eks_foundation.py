@@ -15,12 +15,12 @@ def terraform_text() -> str:
 
 
 def coredns_policy() -> dict:
-    path = ROOT / "deploy" / "eks-lab" / "coredns-network-policy.yaml"
+    path = ROOT / "deploy" / "eks-lab" / "stage-03" / "coredns-network-policy.yaml"
     return yaml.safe_load(path.read_text(encoding="utf-8"))
 
 
 def eks_overlay() -> dict:
-    path = ROOT / "deploy" / "eks-lab" / "kustomization.yaml"
+    path = ROOT / "deploy" / "eks-lab" / "stage-03" / "kustomization.yaml"
     return yaml.safe_load(path.read_text(encoding="utf-8"))
 
 
@@ -58,7 +58,7 @@ def test_eks_foundation_and_overlay_share_the_stage2_api_service_boundary() -> N
     assert "kubernetes_service_ip = cidrhost(local.service_ipv4_cidr, 1)" in locals_text
     assert "service_ipv4_cidr  = local.service_ipv4_cidr" in main_text
     assert 'output "kubernetes_service_ip"' in outputs_text
-    assert "../../lab/stages/stage-02-rbac" in overlay["resources"]
+    assert "../../../lab/stages/stage-02-rbac" in overlay["resources"]
 
 
 def test_eks_overlay_targets_only_the_two_stage2_api_policies() -> None:
@@ -88,7 +88,7 @@ def test_eks_overlay_targets_only_the_two_stage2_api_policies() -> None:
 
 def test_eks_overlay_composes_stage3_with_prometheus_only_api_egress() -> None:
     overlay = eks_overlay()
-    assert "../../lab/stages/stage-03-monitoring" in overlay["resources"]
+    assert "../../../lab/stages/stage-03-monitoring" in overlay["resources"]
     assert "stage-03-prometheus-api-egress.yaml" in overlay["resources"]
 
     monitoring_patch = next(
@@ -105,9 +105,13 @@ def test_eks_overlay_composes_stage3_with_prometheus_only_api_egress() -> None:
     }
 
     api_policy = yaml.safe_load(
-        (ROOT / "deploy" / "eks-lab" / "stage-03-prometheus-api-egress.yaml").read_text(
-            encoding="utf-8"
-        )
+        (
+            ROOT
+            / "deploy"
+            / "eks-lab"
+            / "stage-03"
+            / "stage-03-prometheus-api-egress.yaml"
+        ).read_text(encoding="utf-8")
     )
     assert api_policy["spec"]["podSelector"]["matchLabels"] == {"app": "prometheus"}
     assert api_policy["spec"]["egress"] == [
@@ -119,7 +123,11 @@ def test_eks_overlay_composes_stage3_with_prometheus_only_api_egress() -> None:
 
 
 def test_eks_overlay_composes_stage5_through_the_stage4_eks_boundary() -> None:
-    overlay = eks_overlay()
+    overlay = yaml.safe_load(
+        (ROOT / "deploy" / "eks-lab" / "kustomization.yaml").read_text(
+            encoding="utf-8"
+        )
+    )
     assert "stage-05" in overlay["resources"]
 
     stage4_dir = ROOT / "deploy" / "eks-lab" / "stage-04"

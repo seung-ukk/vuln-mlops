@@ -1,0 +1,17 @@
+- op: replace
+  path: /spec/egress
+  value:
+    - to:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: kube-system}
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+    - to:
+        - podSelector:
+            matchLabels: {app: credential-broker}
+      ports: [{protocol: TCP, port: 8080}]
+    - to:
+        - podSelector:
+            matchLabels: {app: prometheus}
+      ports: [{protocol: TCP, port: 9090}]

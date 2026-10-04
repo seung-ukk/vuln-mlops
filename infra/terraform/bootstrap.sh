@@ -2,7 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-COREDNS_POLICY="${SCRIPT_DIR}/../../deploy/eks-lab/coredns-network-policy.yaml"
+COREDNS_POLICY="${SCRIPT_DIR}/../../deploy/eks-lab/stage-03/coredns-network-policy.yaml"
 COREDNS_ADDRESS='module.eks.aws_eks_addon.this["coredns"]'
 AUTO_APPROVE=false
 

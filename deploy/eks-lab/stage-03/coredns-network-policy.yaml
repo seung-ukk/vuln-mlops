@@ -16,21 +16,13 @@ spec:
     - Egress
   ingress:
     - ports:
-        - protocol: UDP
-          port: 53
-        - protocol: TCP
-          port: 53
-        - protocol: TCP
-          port: 8080
-        - protocol: TCP
-          port: 8181
-        - protocol: TCP
-          port: 9153
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+        - {protocol: TCP, port: 8080}
+        - {protocol: TCP, port: 8181}
+        - {protocol: TCP, port: 9153}
   egress:
     - ports:
-        - protocol: UDP
-          port: 53
-        - protocol: TCP
-          port: 53
-        - protocol: TCP
-          port: 443
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+        - {protocol: TCP, port: 443}

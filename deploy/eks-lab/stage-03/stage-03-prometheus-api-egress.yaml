@@ -3,17 +3,12 @@ kind: NetworkPolicy
 metadata:
   name: prometheus-api-egress
   namespace: stage-03-monitoring
-  labels:
-    lab.vuln-mlops/stage: "03"
+  labels: {lab.vuln-mlops/stage: "03"}
 spec:
   podSelector:
-    matchLabels:
-      app: prometheus
+    matchLabels: {app: prometheus}
   policyTypes: [Egress]
   egress:
     - to:
-        - ipBlock:
-            cidr: 172.20.0.1/32
-      ports:
-        - protocol: TCP
-          port: 443
+        - ipBlock: {cidr: 172.20.0.1/32}
+      ports: [{protocol: TCP, port: 443}]
