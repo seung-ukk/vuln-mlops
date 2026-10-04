@@ -11,7 +11,8 @@
 - Latest merged commit: `ef495f1 Merge pull request #1 from seung-ukk/codex/stage2-5-checkpoint`
 - Repository: `https://github.com/seung-ukk/vuln-mlops`
 - Container: `ghcr.io/seung-ukk/vuln-mlops`
-- 현재 작업 트리: Terraform/EKS foundation 구현 및 로컬 검증 완료, 미커밋
+- 현재 작업 트리: EKS runtime-client image와 GHCR build pipeline 구현 및 로컬 검증 완료,
+  미커밋
 
 ## 완료된 작업
 
@@ -114,6 +115,15 @@
 - Node IAM에 Stage 6 storage/CSI 권한을 추가하지 않는 shortcut 테스트
 - 기존 EKS overlay의 IMDS 및 private-network wildcard 허용 제거
 
+### EKS Stage 5 runtime-client image
+
+- EKS 1.36과 맞춘 공식 `crictl` v1.36.0 archive와 공식 SHA-256 고정
+- digest 고정 Debian 최종 이미지와 BuildKit checksum 검증 구성
+- `/run/stage5/containerd.sock`만 기본 runtime/image endpoint로 지정
+- GHCR `vuln-mlops-runtime-client` 전용 amd64 build/publish job 구성
+- pull request에서는 build-only, main/tag push에서만 package publish
+- 로컬 이미지에서 `crictl version v1.36.0`, 설정 파일, curl/wget 부재 검증
+
 ### Delivery
 
 - GitHub Actions Python test
@@ -124,7 +134,7 @@
 
 ## 최근 검증 결과
 
-- Python tests: `65 passed`
+- Python tests: `70 passed`
 - Python compileall: passed
 - Docker Compose config validation: passed
 - Terraform format: passed
@@ -146,6 +156,7 @@
 - 실제 EKS node 3대 `Ready`: general 2대, escape 1대와 escape `NoSchedule` taint 확인
 - 실제 EC2 ENI: general node는 general SG만, escape node는 escape SG만 연결됨을 확인
 - EKS Stage 1 overlay Kustomize render: passed
+- Stage 5 EKS runtime-client local image build and runtime checks: passed
 - Stage 2 Kustomize render: passed
 - Stage 2 kind acceptance: passed (Kubernetes 1.37.0)
 - Stage 2 intended Job -> `monitoring-runner` -> Flag 획득: passed
@@ -184,7 +195,7 @@
 | Stage 4 Argo CD | 완료 | 제한된 Git change, reconciliation, shortcut denial 검증됨 |
 | Stage 5 Runtime | 완료 | escape worker, CRI proof, shortcut denial, audit 검증됨 |
 | Stage 6 CSI/IAM | 미구현 | AWS threat model과 tag policy 필요 |
-| Terraform/EKS | 구현 중 | bootstrap 자동화 및 재실행 검증 완료, destroy 후 clean second apply와 workload composition 필요 |
+| Terraform/EKS | 구현 중 | bootstrap 재실행 및 runtime-client local build 완료, GHCR publish/digest pin 필요 |
 
 ## 다음 작업: Terraform/EKS plan 및 Stage 1~5 배포 조합
 
@@ -209,7 +220,7 @@ boundary를 확정한 뒤 추가한다.
 - Flag 발급/채점 서비스의 최초 도입 시점
 - 전체 lab orchestration을 이 저장소에 유지할지 별도 저장소로 분리할 시점
 - Stage 1~5 배포 후 자동 acceptance를 단일 스크립트로 묶을 범위
-- 로컬에서 mount한 `crictl`을 포함하는 EKS용 runtime-client image의 build/publish 위치
+- runtime-client 최초 GHCR 게시 후 고정할 image manifest digest
 
 결정 전 기본 방향:
 
@@ -220,8 +231,8 @@ boundary를 확정한 뒤 추가한다.
 - Stage 4는 Argo CD 3.5.3과 Gitea 1.27.3-rootless를 digest로 고정한다.
 - Stage 4 read wildcard는 namespaced dynamic cache의 read-only API에만 사용한다.
 - Stage 5 로컬 기준은 kind escape worker와 containerd CRI 주입 경로로 확정했다.
-- EKS에서는 host binary mount 대신 reviewed `crictl`을 포함한 digest-pinned
-  runtime-client image를 사용한다.
+- EKS에서는 `images/runtime-client`가 만드는 reviewed `crictl` 이미지를 사용한다.
+  최초 GHCR 게시 후 manifest digest를 고정하고 host binary mount를 제거한다.
 
 ## 현재 미완료 사항
 
@@ -240,14 +251,16 @@ boundary를 확정한 뒤 추가한다.
   end-to-end smoke는 아직 실행하지 않았다.
 - 배포별 무작위 Flag 발급, hash 기반 채점, reset/reissue 서비스는 없다. 현재 proof와
   credential은 local lab용 placeholder/synthetic 값이다.
-- EKS용 runtime-client image와 build/publish pipeline은 없다. 로컬 Stage 5는 kind node의
-  reviewed `crictl` binary를 read-only mount한다.
-- Stage 2~5 checkpoint는 PR #1로 main에 병합되었고 CI가 통과했다. 현재 Terraform
-  foundation 변경은 아직 커밋/push하지 않았으며 GitHub Actions 결과가 없다.
+- EKS용 runtime-client image와 GHCR pipeline은 구현했지만 아직 원격에 게시되지 않아
+  manifest digest를 고정하지 않았다. 로컬 Stage 5는 계속 kind node의 reviewed `crictl`
+  binary를 read-only mount한다.
+- Stage 2~5 checkpoint는 PR #1로 main에 병합되었고 CI가 통과했다. Terraform
+  foundation은 local commit `f5e654c`로 보존했지만 아직 push하지 않았다. 현재
+  runtime-client 변경도 미커밋이며 GitHub Actions 결과가 없다.
 
 ## 알려진 제약과 주의사항
 
-- 현재 로컬 검증에서 해결되지 않은 실패는 없다. Python 50개, Stage 2~5 kind
+- 현재 로컬 검증에서 해결되지 않은 실패는 없다. Python 70개, Stage 2~5 kind
   acceptance, Compose/Kustomize/compile 검사가 통과했다.
 - Stage 5 namespace는 containerd socket hostPath 때문에 Pod Security `privileged` level을
   사용한다. 실제 container는 privileged가 아니지만 runtime socket 자체는 사실상 node
