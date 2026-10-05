@@ -7,14 +7,25 @@
 
 ## 현재 기준점
 
-- Branch: `codex/modelgate-public-access`
-- Latest merged commit: `9d3cc07 Merge pull request #4 from seung-ukk/codex/eks-stage1-deploy`
+- Branch: `codex/modelgate-image-refresh`
+- Latest merged commit: `cde5312964a27ba1ffcf3080fb98b84eb24d48c4` (PR #6)
 - Repository: `https://github.com/seung-ukk/vuln-mlops`
 - Container: `ghcr.io/seung-ukk/vuln-mlops`
-- 현재 작업 트리: PR #4로 Stage 1~5 EKS composition과 AWS acceptance를 `main`에 병합했다.
-  다음 milestone인 clean 재배포를 위해 Terraform bootstrap, CRD/overlay apply, rollout,
-  synthetic Gitea baseline과 reset/status를 연결하는 account-neutral orchestration을
-  구현했고, 정적 계약과 실제 AWS 재실행·idempotency·reset acceptance를 완료했다.
+- 현재 작업 트리: PR #6의 proof-bound 참가자 경로가 `main`에 병합되었다. 개인 계정
+  EKS는 아직 이전 ModelGate digest를 실행한다. 이번 마일스톤은 새 OCI index pin을
+  계약과 함께 갱신한 뒤 공개 EIP에서 Stage 1~5 참가자 경로를 검증하는 것이다.
+
+### 현재 ModelGate 이미지 갱신
+
+- 병합 커밋 `cde5312`의 GHCR `:main`과 `:sha-cde5312`는 같은 OCI index
+  `sha256:8f0a902437e5f276e4c316fdb7d77b0f955337c075199b8c221a9193b2158da9`를
+  가리킨다. index에 `linux/amd64` manifest가 포함되어 있다.
+- EKS Stage 1~3 overlay, Stage 5 runtime relay의 base/desired Deployment,
+  ValidatingAdmissionPolicy를 이 digest로 동기화했다. runtime-client pin은 유지했다.
+- 관련 Stage 1/EKS·Stage 5 intended/shortcut 계약 테스트 26개, 전체 EKS Kustomize
+  render, `git diff --check`가 통과했다.
+- 현재 EKS 적용 및 공개 EIP Stage 1~5 검증은 아직 수행하지 않았다. 이미지 pin 변경을
+  PR/CI로 보존한 뒤 적용한다.
 
 ## 완료된 작업
 
