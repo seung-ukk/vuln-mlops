@@ -87,6 +87,28 @@ resource "aws_vpc_security_group_ingress_rule" "nodes_from_control_plane" {
   to_port                      = each.value.port
 }
 
+resource "aws_vpc_security_group_egress_rule" "control_plane_to_lbc_webhook" {
+  count = var.enable_modelgate_public_access ? 1 : 0
+
+  security_group_id            = aws_security_group.eks_control_plane.id
+  referenced_security_group_id = aws_security_group.general_nodes.id
+  description                  = "Control plane to AWS Load Balancer Controller webhook"
+  ip_protocol                  = "tcp"
+  from_port                    = 9443
+  to_port                      = 9443
+}
+
+resource "aws_vpc_security_group_ingress_rule" "general_nodes_from_lbc_webhook" {
+  count = var.enable_modelgate_public_access ? 1 : 0
+
+  security_group_id            = aws_security_group.general_nodes.id
+  referenced_security_group_id = aws_security_group.eks_control_plane.id
+  description                  = "AWS Load Balancer Controller webhook from control plane"
+  ip_protocol                  = "tcp"
+  from_port                    = 9443
+  to_port                      = 9443
+}
+
 resource "aws_vpc_security_group_ingress_rule" "general_node_tcp" {
   security_group_id            = aws_security_group.general_nodes.id
   referenced_security_group_id = aws_security_group.general_nodes.id

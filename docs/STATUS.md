@@ -328,10 +328,12 @@
 - `main`, `latest`, `sha-*`, `v*` tag policy
 - Compose와 Kubernetes deployment 환경변수 반영
 - GHCR anonymous pull 검증
+- `docs/STAGE1_5_WRITEUP.md`에 Stage별 핵심 원리, 실제 요청/응답, synthetic proof,
+  shortcut denial과 자동 acceptance 절차를 정리한 멘토용 답안 추가
 
 ## 최근 검증 결과
 
-- Python tests: `87 passed`
+- Python tests: `122 passed`
 - Python compileall: passed
 - Docker Compose config validation: passed
 - Terraform format: passed
@@ -390,6 +392,25 @@
 - 실제 reset과 ephemeral proof/resource 정리: passed
 - 실제 reset 후 Stage 1~5 자동 intended path와 대표 shortcut denial: passed
 - 자동 acceptance cleanup 후 Git baseline 및 Argo `Synced/Healthy`: passed
+- ModelGate 단일-EIP NLB intended/shortcut 계약 테스트 10개와 기존 Terraform 경계
+  회귀 테스트를 합친 37개: passed
+- ModelGate public access 변경 후 Terraform format/validate와 WSL Bash syntax: passed
+- 실제 EIP/NLB plan/apply: `7 add, 0 change, 0 destroy`; EKS/node group 교체 없음
+- 실제 AWS Load Balancer Controller Pod Identity rollout과 단일-AZ NLB target health: passed
+- 고정 EIP `3.35.2.114`에서 ModelGate `/healthz`와 `/readyz`: passed
+- 허용 `/32`에서 공개 endpoint Stage 1 redirect SSRF와 marker-only RCE: passed
+- 비허용 공인 IP의 ModelGate NLB 접근: connection timeout으로 denied
+- 최초 reset에서 ModelGate가 NLB에 활성화되지 않은 다른 AZ로 재배치되어 target이
+  `Target.NotInUse`가 되는 단일-subnet 제약을 확인함
+- access manager가 public subnet AZ를 조회해 ModelGate를 같은 zone에 고정하고 NLB target
+  `healthy`까지 대기하도록 보완함
+- AZ 고정 후 기본 surge rollout이 동일 노드에 ModelGate Pod 두 개를 요구해
+  `Insufficient memory`로 중단되는 것을 확인함. 단일 replica access 모드에
+  `maxSurge: 0`, `maxUnavailable: 1`을 적용함
+- 해당 보완 후 실제 orchestration `reset` 재검증: passed. ModelGate는 public subnet과
+  같은 `ap-northeast-2a`의 general node에서 `3/3 Running`, Deployment는
+  `NewReplicaSetAvailable`, NLB target은 `healthy`, 고정 EIP `/healthz`는 HTTP 200으로
+  복구됨. 단일 replica의 `maxSurge: 0` 구성상 rollout 중 짧은 서비스 중단은 허용됨
 - 실제 EKS Stage 2 RBAC positive/negative matrix: passed
 - 실제 EKS Stage 2 admission shortcut 7개: denied
 - 실제 EKS Stage 2 Job → monitoring-runner → synthetic Flag: passed
@@ -462,6 +483,12 @@ EKS 재실행까지 검증했다. 다음 작업은 개인 계정의 destroy 후 
 팀 계정 배포를 검증하는 것이다. Stage 6 CSI/IAM은 별도 AWS threat model과 tag boundary를
 확정한 뒤 추가한다.
 
+도메인 없는 팀 내부 초기 진입점은 별도 `deploy/eks-access` 계층으로 설계했다. 이 계층은
+첫 public subnet 하나, Terraform 관리 EIP 하나, ModelGate 전용 internet-facing NLB만
+사용한다. AWS Load Balancer Controller는 EKS Pod Identity를 사용하며 참가자 공인 IP
+`/32`와 NLB health-check subnet 이외의 ModelGate ingress를 허용하지 않는다. HTTP는
+synthetic lab 데이터만 전달하는 단기 실습 예외이며, 도메인 확보 후 HTTPS로 교체한다.
+
 ### Terraform 시작 전 유지 조건
 
 - Stage 4 repository branch/path, AppProject, admission, RBAC 경계를 넓히지 않는다.
@@ -492,8 +519,10 @@ EKS 재실행까지 검증했다. 다음 작업은 개인 계정의 destroy 후 
 
 - Terraform VPC/EKS와 general/escape managed node group의 첫 AWS apply는 완료했지만,
   destroy 후 clean second apply 반복 검증은 아직 수행하지 않았다.
-- 원격 state/bootstrap, ECR, public ingress, DNS/TLS, 배포/삭제 orchestration은 아직
-  구현하지 않았다. 첫 개인 계정 검증은 계정별 local state로 시작한다.
+- 원격 state/bootstrap, ECR, DNS/TLS는 아직 구현하지 않았다. 도메인 없는 ModelGate
+  단일-EIP HTTP NLB의 Terraform/Kubernetes 구성, 실제 AWS 배포, 허용·비허용 공인 IP
+  검증은 완료했다. 선-NLB 삭제와 Terraform EIP 반환 절차는 전체 실습 철거 때 실제로
+  검증한다. 첫 개인 계정 검증은 계정별 local state를 사용한다.
 - Stage 6 CSI/AWS Storage/IAM pivot과 AWS tag/IAM policy boundary는 아직 설계·구현하지
   않았다.
 - Stage 1부터 Stage 5까지를 한 명령으로 배포하고 전체 체인을 연속 실행하는 acceptance

@@ -124,7 +124,9 @@ EBS/EFS resource에만 접근하고 Final Flag를 얻는다. 일반 application 
 - 2개 이상의 AZ에 걸친 전용 VPC와 private worker subnet
 - 일반 workload와 Stage 5용 escape EKS managed node group 분리
 - escape node group의 고정 label/taint와 1-node 상한
-- public ALB는 HTTPS만 사용하고 팀원 공인 IP `/32`만 허용
+- 현재 팀 내부 단기 실습 진입점은 단일 public subnet과 Terraform 관리 EIP를 사용하는
+  ModelGate 전용 HTTP NLB이며 팀원 공인 IP `/32`만 허용
+- 도메인 확보 후 장기 운영 진입점은 HTTPS ALB/NLB로 교체하고 현재 HTTP 예외를 제거
 - EKS API endpoint는 private 또는 제한된 public CIDR 사용
 - EKS Access Entry API와 별도 operator role 사용
 - VPC CNI NetworkPolicy strict mode와 CNI용 Pod Identity 사용
@@ -198,7 +200,8 @@ vuln-mlops/
 
 전체 랩은 다음 조건을 모두 만족해야 완료된 것으로 본다.
 
-- 외부 참가자는 허용된 HTTPS endpoint 외에는 접근할 수 없다.
+- 외부 참가자는 허용된 ModelGate 진입점 외에는 접근할 수 없다. 현재 단기 실습은
+  `/32` 제한 HTTP NLB이고, 도메인 확보 후 HTTPS로 전환한다.
 - Stage 1부터 Final Flag까지 문서화된 순서로 완료할 수 있다.
 - 각 Stage를 건너뛰는 주요 shortcut 테스트가 모두 실패한다.
 - 일반 workload compromise가 즉시 cluster-admin 또는 AWS admin으로 이어지지 않는다.

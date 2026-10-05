@@ -38,3 +38,13 @@ check "availability_zones" {
     error_message = "The selected region does not expose enough available zones."
   }
 }
+
+check "modelgate_participant_boundary" {
+  assert {
+    condition = (
+      !var.enable_modelgate_public_access ||
+      length(var.participant_access_cidrs) > 0
+    )
+    error_message = "Public ModelGate access requires at least one participant /32 CIDR."
+  }
+}

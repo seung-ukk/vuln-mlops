@@ -28,9 +28,49 @@ output "vpc_id" {
   value       = module.vpc.vpc_id
 }
 
+output "vpc_cidr" {
+  description = "Dedicated lab VPC CIDR used by the controller webhook policy."
+  value       = var.vpc_cidr
+}
+
 output "private_subnet_ids" {
   description = "Private subnets used by both managed node groups."
   value       = module.vpc.private_subnets
+}
+
+output "modelgate_public_access_enabled" {
+  description = "Whether Terraform created the optional public ModelGate access prerequisites."
+  value       = var.enable_modelgate_public_access
+}
+
+output "modelgate_public_eip" {
+  description = "Single participant-facing IPv4 address for the ModelGate NLB."
+  value       = try(aws_eip.modelgate_public[0].public_ip, null)
+}
+
+output "modelgate_public_eip_allocation_id" {
+  description = "Allocation ID attached to the single-AZ ModelGate NLB."
+  value       = try(aws_eip.modelgate_public[0].allocation_id, null)
+}
+
+output "modelgate_public_subnet_id" {
+  description = "Single public subnet selected for the deliberately non-HA lab NLB."
+  value       = var.enable_modelgate_public_access ? module.vpc.public_subnets[0] : null
+}
+
+output "modelgate_public_subnet_cidr" {
+  description = "CIDR used only for NLB health-check ingress to ModelGate."
+  value       = var.enable_modelgate_public_access ? local.public_subnets[0] : null
+}
+
+output "modelgate_participant_access_cidrs" {
+  description = "Reviewed participant /32 allowlist rendered into the NLB and NetworkPolicy."
+  value       = var.enable_modelgate_public_access ? var.participant_access_cidrs : []
+}
+
+output "aws_load_balancer_controller_role_arn" {
+  description = "Pod Identity role used only by the optional AWS Load Balancer Controller."
+  value       = try(module.aws_load_balancer_controller_pod_identity[0].iam_role_arn, null)
 }
 
 output "node_security_group_ids" {

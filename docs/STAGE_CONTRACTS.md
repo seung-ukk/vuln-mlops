@@ -29,7 +29,9 @@
 
 ### Input identity
 
-- 팀원 IP에서 ModelGate HTTPS endpoint에 접근 가능한 외부 사용자
+- 허용 목록의 팀원 공인 IP에서 ModelGate 전용 endpoint에 접근 가능한 외부 사용자
+- 현재 단기 실습 endpoint는 단일 Terraform 관리 EIP의 HTTP NLB이며, synthetic 데이터만
+  전송한다. 도메인 확보 후 공개 인증서를 사용하는 HTTPS로 교체한다.
 - Kubernetes credential 없음
 - AWS credential 없음
 
@@ -47,6 +49,8 @@
 ### Shortcut denial
 
 - canary는 ALB 또는 host port에 직접 노출하지 않는다.
+- public NLB는 `modelgate-public` Service만 게시하고 참가자 `/32` 외 접근을 거부한다.
+- Prometheus, Grafana, credential broker, Gitea, Argo CD, MLflow는 NLB로 게시하지 않는다.
 - Stage 1 Pod에서 IMDS, Kubernetes API, monitoring, Argo CD로 직접 연결하지 못한다.
 - SSRF 응답에 AWS credential, ServiceAccount token 또는 실제 Secret을 포함하지 않는다.
 - 외부 redirector는 팀이 통제하며 open redirect 서비스에 의존하지 않는다.
