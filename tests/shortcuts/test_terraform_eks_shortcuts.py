@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 
 import yaml
 
@@ -88,12 +89,13 @@ def test_eks_overlay_contains_no_personal_account_or_cluster_binding() -> None:
         "707605822656",
         "vuln-mlops-personal-lab",
         "cluster-operator",
-        "arn:aws:",
         "AWS_ACCESS_KEY_ID",
         "AWS_SECRET_ACCESS_KEY",
     ]
     for value in forbidden:
         assert value not in text
+    # A generic ARN format check is portable; a concrete account ARN is not.
+    assert re.search(r"arn:aws:[^:\s]+:[^:\s]*:[0-9]{12}:", text) is None
 
 
 def test_stage2_eks_api_egress_has_no_kind_or_vpc_wildcard() -> None:

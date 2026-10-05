@@ -76,6 +76,12 @@
   거부한다. 현재 이미지는 아직 CI에 게시되지 않았으므로 실제 EKS 전환은 미실행이다.
   로컬 IAM overlay와 전환 overlay Kustomize 렌더, placeholder 치환/파싱,
   배포·앱·gateway 대상 테스트 39개 및 Bash 문법 검사가 통과했다.
+- PR #8의 첫 CI에서 `ci/container`와 `ci/runtime-client`는 통과했으나 `ci/test`는
+  실패했다. CI 실패 로그의 직접 조회는 네트워크 timeout으로 완료하지 못했지만,
+  로컬 전체 테스트에서 IAM 역할 ARN의 계정 중립적 형식 검사 문자열까지 금지하던
+  기존 shortcut 테스트 실패를 재현했다. 실제 12자리 계정이 들어간
+  하드코딩 ARN만 금지하도록 검사를 좁혔고, 수정 후 전체 Python 테스트가 통과했다.
+  이 수정은 아직 PR branch에 push되지 않았으며 CI 재실행이 필요하다.
 - 이 진단 Job은 운영자 검증이며 참가자 경로 성공 증거가 아니다. 최종 목표는
   Pod 명령 실행→IRSA→합성 S3 proof이고, 이 자체를 노드 장악으로 부르지 않는다.
 
