@@ -46,6 +46,26 @@ def test_admission_fixes_node_socket_image_and_container_shape():
     assert "runtime-client'" not in expressions
 
 
+def test_runtime_relay_image_matches_reviewed_eks_pin_and_admission():
+    overlay = yaml.safe_load(
+        (ROOT / "deploy" / "eks-lab" / "stage-03" / "kustomization.yaml").read_text(
+            encoding="utf-8"
+        )
+    )
+    expected = f"ghcr.io/seung-ukk/vuln-mlops@{overlay['images'][0]['digest']}"
+    base = docs("runtime-builder-base.yaml")[0]
+    desired = docs("repository/runtime-builder/deployment.yaml")[0]
+    for deployment in (base, desired):
+        containers = deployment["spec"]["template"]["spec"]["containers"]
+        relay = next(c for c in containers if c["name"] == "runtime-relay")
+        assert relay["image"] == expected
+
+    policy = docs("admission-policy.yaml")[0]
+    expressions = "\n".join(v["expression"] for v in policy["spec"]["validations"])
+    assert f"object.spec.template.spec.containers[1].image == '{expected}'" in expressions
+    assert "sha256:9953d23e" not in expressions
+
+
 def test_privilege_host_namespace_and_serviceaccount_shortcuts_are_denied():
     policy = docs("admission-policy.yaml")[0]
     expressions = "\n".join(v["expression"] for v in policy["spec"]["validations"])

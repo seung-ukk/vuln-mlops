@@ -6,7 +6,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[2]
 TF = ROOT / "infra" / "terraform"
 MODELGATE_IMAGE_DIGEST = (
-    "sha256:9953d23e8102114873c3a52eaecd0a2e80d260cb0b7ee09ae348c0af3d66a244"
+    "sha256:8f0a902437e5f276e4c316fdb7d77b0f955337c075199b8c221a9193b2158da9"
 )
 
 

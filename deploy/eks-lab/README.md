@@ -6,7 +6,7 @@ private-network egress.
 
 All three ModelGate containers are rewritten from the base development tag to the
 reviewed GHCR OCI index digest
-`sha256:9953d23e8102114873c3a52eaecd0a2e80d260cb0b7ee09ae348c0af3d66a244`.
+`sha256:8f0a902437e5f276e4c316fdb7d77b0f955337c075199b8c221a9193b2158da9`.
 Resolve and review a newly published index before deliberately updating this pin.
 
 The overlay is AWS-account neutral. Do not add a personal account ID, cluster ARN,
