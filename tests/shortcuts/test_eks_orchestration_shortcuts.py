@@ -71,10 +71,16 @@ def test_acceptance_checks_representative_shortcut_denials() -> None:
     text = ACCEPTANCE.read_text(encoding="utf-8")
 
     assert 'get secret/stage-02-flag' in text
-    assert 'direct Prometheus shortcut succeeded' in text
+    assert 'arbitrary Stage 3 credential reference was accepted' in text
     assert 'forbidden Git path was accepted' in text
     assert 'can-i create deployments.apps' in text
     assert 'node-role\",\"value\":\"general' in text
+    stage4 = text[text.index("[Stage 4]") : text.index("[Stage 5]")]
+    assert "start_port_forward stage-04-gitops service/gitea 3000" not in stage4
+    assert "${stage4_gateway}" in stage4
+    stage5 = text[text.index("[Stage 5]") : text.index("[Cleanup]")]
+    assert "kubectl exec" not in stage5
+    assert "-d '{}'" in stage5
 
 
 def test_acceptance_keeps_proof_channels_synthetic_and_scoped() -> None:

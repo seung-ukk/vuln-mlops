@@ -121,6 +121,8 @@ def main() -> None:
                 "validation_job": job["id"],
                 "validation_status": job["status"],
                 "evidence": proof_result["evidence"],
+                "foothold_session": proof_result["foothold_session"],
+                "next": proof_result["next"],
             },
             ensure_ascii=False,
         )

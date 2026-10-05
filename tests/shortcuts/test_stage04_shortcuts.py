@@ -67,3 +67,30 @@ def test_unused_argocd_entrypoints_are_scaled_down_and_redis_has_no_api_client()
     assert "automountServiceAccountToken" in redis_patch["patch"]
     assert "value: false" in redis_patch["patch"]
     assert "path: /spec/template/spec/initContainers" in redis_patch["patch"]
+
+
+def test_participant_gateway_does_not_expose_gitea_or_broad_status_permissions():
+    gitea_documents = docs("git-server.yaml")
+    service = next(item for item in gitea_documents if item["kind"] == "Service")
+    assert service["spec"].get("type", "ClusterIP") == "ClusterIP"
+    assert not any(item["kind"] == "Ingress" for item in gitea_documents)
+
+    role = next(
+        item for item in docs("participant-status-rbac.yaml")
+        if item["kind"] == "Role"
+    )
+    for rule in role["rules"]:
+        assert rule["verbs"] == ["get"]
+        assert rule["resourceNames"] == ["runtime-builder"]
+        assert "list" not in rule["verbs"] and "watch" not in rule["verbs"]
+
+    network = docs("network-policy.yaml")
+    gateway_ingress = next(
+        item for item in network
+        if item["metadata"]["name"] == "modelgate-stage-04-git-ingress"
+    )
+    assert gateway_ingress["spec"]["podSelector"] == {
+        "matchLabels": {"app": "gitea"}
+    }
+    modelgate_ingress = gateway_ingress["spec"]["ingress"][0]
+    assert modelgate_ingress["ports"] == [{"protocol": "TCP", "port": 3000}]

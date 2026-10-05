@@ -1,3 +1,4 @@
+from modelgate.kubernetes import stage2_job_manifest
 from tests.stage2_manifest_helpers import STAGE, document, documents, rule_for
 
 
@@ -70,6 +71,7 @@ def test_attack_job_uses_pinned_runner_and_fixed_identity():
     container = pod["containers"][0]
 
     assert pod["serviceAccountName"] == "monitoring-runner"
+    assert "ttlSecondsAfterFinished" not in job["spec"]
     assert pod["automountServiceAccountToken"] is True
     assert container["image"] == RUNNER_IMAGE
     assert container["command"] == ["/bin/kubectl"]
@@ -80,6 +82,12 @@ def test_attack_job_uses_pinned_runner_and_fixed_identity():
         "--namespace=stage-02-rbac",
         "--output=jsonpath={.data.flag}",
     ]
+
+
+def test_public_foothold_relay_submits_the_reviewed_fixed_job():
+    assert stage2_job_manifest() == document(
+        "attack-job.yaml", "Job", "stage-02-secret-reader"
+    )
 
 
 def test_audit_policy_records_all_stage_namespace_metadata():

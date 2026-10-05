@@ -1,0 +1,21 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata: {name: modelgate-stage-04-status, namespace: stage-04-gitops}
+rules:
+  - apiGroups: [argoproj.io]
+    resources: [applications]
+    resourceNames: [runtime-builder]
+    verbs: [get]
+  - apiGroups: [apps]
+    resources: [deployments]
+    resourceNames: [runtime-builder]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: modelgate-stage-04-status, namespace: stage-04-gitops}
+subjects:
+  - kind: ServiceAccount
+    name: modelgate
+    namespace: modelgate-lab
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: modelgate-stage-04-status}

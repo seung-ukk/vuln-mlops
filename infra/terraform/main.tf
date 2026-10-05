@@ -69,6 +69,39 @@ module "vpc_cni_pod_identity" {
   aws_vpc_cni_enable_ipv4   = true
 }
 
+resource "aws_eip" "modelgate_public" {
+  count = var.enable_modelgate_public_access ? 1 : 0
+
+  domain = "vpc"
+
+  tags = {
+    Name    = "${local.name}-modelgate-public"
+    Purpose = "modelgate-single-az-nlb"
+  }
+}
+
+module "aws_load_balancer_controller_pod_identity" {
+  count = var.enable_modelgate_public_access ? 1 : 0
+
+  source  = "terraform-aws-modules/eks-pod-identity/aws"
+  version = "2.9.0"
+
+  name = "${local.name}-aws-lbc"
+
+  attach_aws_lb_controller_policy = true
+
+  association_defaults = {
+    namespace       = "kube-system"
+    service_account = "aws-load-balancer-controller"
+  }
+
+  associations = {
+    lab = {
+      cluster_name = module.eks.cluster_name
+    }
+  }
+}
+
 module "eks" {
   source  = "terraform-aws-modules/eks/aws"
   version = "21.26.0"

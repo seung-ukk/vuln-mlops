@@ -29,15 +29,19 @@
 
 ### Input identity
 
-- 팀원 IP에서 ModelGate HTTPS endpoint에 접근 가능한 외부 사용자
+- 허용 목록의 팀원 공인 IP에서 ModelGate 전용 endpoint에 접근 가능한 외부 사용자
+- 현재 단기 실습 endpoint는 단일 Terraform 관리 EIP의 HTTP NLB이며, synthetic 데이터만
+  전송한다. 도메인 확보 후 공개 인증서를 사용하는 HTTPS로 교체한다.
 - Kubernetes credential 없음
 - AWS credential 없음
 
 ### Intended action
 
-1. ModelGate webhook API로 첫 URL을 등록한다.
-2. 첫 URL은 공개 주소 검증을 통과하고 내부 synthetic canary로 redirect한다.
-3. MLflow webhook test 결과에서 내부 canary 문자열을 확인한다.
+1. 공개 UI에서 API 문서를 발견하고 OpenAPI 명세를 조사한다.
+2. `GET /api/system/info`의 synthetic probe 좌표로 Kubernetes service FQDN을 조립한다.
+3. ModelGate webhook API로 첫 URL을 등록한다.
+4. 첫 URL은 공개 주소 검증을 통과하고 내부 synthetic canary로 redirect한다.
+5. MLflow webhook test 결과에서 내부 canary 문자열을 확인한다.
 
 ### Success evidence
 
@@ -47,8 +51,12 @@
 ### Shortcut denial
 
 - canary는 ALB 또는 host port에 직접 노출하지 않는다.
+- public NLB는 `modelgate-public` Service만 게시하고 참가자 `/32` 외 접근을 거부한다.
+- Prometheus, Grafana, credential broker, Gitea, Argo CD, MLflow는 NLB로 게시하지 않는다.
 - Stage 1 Pod에서 IMDS, Kubernetes API, monitoring, Argo CD로 직접 연결하지 못한다.
 - SSRF 응답에 AWS credential, ServiceAccount token 또는 실제 Secret을 포함하지 않는다.
+- system-info는 service, namespace, port, path 이외의 완성 URL, ClusterIP, cloud metadata,
+  credential을 반환하지 않는다.
 - 외부 redirector는 팀이 통제하며 open redirect 서비스에 의존하지 않는다.
 
 ## Stage 1B: Deserialization RCE
@@ -65,12 +73,13 @@
 3. 반환된 `models:/m-...` URI로 model version을 등록한다.
 4. validator가 모델을 자동 로드하면서 고정 marker를 생성한다.
 5. UUID 기반 proof API로 실행 여부를 확인한다.
+6. 같은 proof UUID로 bounded foothold API의 다음 경로를 확인한다.
 
 ### Output identity
 
 - `uid=10001`의 validator process execution
-- 다음 Stage에서 `system:serviceaccount:modelgate-lab:modelgate` identity를 사용할 수
-  있는 실행 문맥
+- `system:serviceaccount:modelgate-lab:modelgate` 권한으로 SelfSubjectRulesReview와 고정
+  Stage 2 Job 작업만 중계하는 proof-bound 실행 문맥
 
 ### Success evidence
 
@@ -80,6 +89,8 @@
 ### Shortcut denial
 
 - proof API는 marker 파일 내용을 반환하지 않는다.
+- foothold API는 Kubernetes token, 임의 URL/API path, namespace, manifest, Pod 이름을
+  입력받거나 반환하지 않는다.
 - payload는 reverse shell, callback, credential 접근, subprocess 실행을 포함하지 않는다.
 - Pod는 non-root, restricted Pod Security, capability drop, read-only root filesystem을 유지한다.
 - hostPath, runtime socket, privileged mode, AWS identity를 제공하지 않는다.
@@ -94,17 +105,20 @@
 
 ### Intended action
 
-1. 현재 ServiceAccount와 namespace를 확인한다.
-2. SelfSubjectRulesReview 또는 허용된 API discovery로 effective permission을 조사한다.
+1. Stage 1 proof 응답의 `foothold_session`과 `next`를 확인한다.
+2. proof-bound SelfSubjectRulesReview relay로 effective permission을 조사한다.
 3. 직접 Secret 접근은 거부되는 것을 확인한다.
-4. 지정된 namespace에 Job을 생성할 수 있는 권한 조합을 발견한다.
-5. admission policy가 허용하는 `monitoring-runner` ServiceAccount로 Job을 실행한다.
-6. `monitoring-runner`가 이름이 고정된 Stage 2 Secret을 `get`한다.
+4. body가 없는 fixed Job endpoint로 admission policy가 허용하는
+   `monitoring-runner` Job을 실행한다.
+5. fixed status endpoint를 polling하고 fixed log endpoint에서 synthetic proof를 얻는다.
+6. `monitoring-runner`가 이름이 고정된 Stage 2 Secret을 `get`했음을 확인한다.
+7. 완료된 고정 Job은 명시적 lab reset까지 유지되어 Stage 3 세션의 선행 증거가 된다.
 
 ### Output identity
 
 - `system:serviceaccount:stage-02-rbac:monitoring-runner`
-- Stage 3 monitoring namespace에 대한 제한된 접근
+- Stage 3 monitoring namespace의 Grafana와 credential broker에만 연결되는
+  `monitoring-session` relay
 
 ### Success evidence
 
@@ -152,9 +166,12 @@
 ### Intended action
 
 1. 최신 Prometheus/Grafana 구성과 Kubernetes service discovery를 조사한다.
-2. target, label, annotation, datasource에서 내부 topology를 확인한다.
-3. Argo CD endpoint 및 실습 repository를 식별한다.
-4. monitoring component에 과도하게 집중된 제한된 Git credential을 획득한다.
+2. proof-bound datasource endpoint에서 Grafana datasource UID를 확인한다.
+3. 고정 query endpoint를 통해 `gitops_debug_info` topology metric을 확인한다.
+4. metric에서 Argo CD application, 실습 repository와 opaque credential reference를 식별한다.
+5. 발견한 정확한 reference만 broker에 교환해 제한된 Git credential을 획득한다.
+6. credential 응답의 proof-bound `git_gateway`와 `application_status` 경로를 다음 단계
+   진입점으로 사용한다.
 
 ### Output identity
 
@@ -173,6 +190,11 @@
 - AWS IAM, runtime socket, hostPath 금지
 - Git credential은 실습 repository 밖에 쓰기 불가
 - 외부 사용자가 Prometheus/Grafana에 직접 접근 불가
+- Gitea UI, 관리 API와 임의 repository를 외부에 직접 공개하지 않음
+- ModelGate Pod가 Grafana, Prometheus, broker에 직접 연결하지 못하고
+  `monitoring-session` TCP 8080만 연결 가능
+- monitoring relay는 datasource 목록, 고정 query, 고정 exchange 이외 경로를 404 처리
+- Stage 2 Job이 완료되지 않은 proof 세션의 Stage 3 relay 사용 거부
 - metrics/labels에 Final Flag 또는 AWS credential 금지
 
 ## Stage 4: Argo CD / GitOps Privilege Escalation
@@ -181,12 +203,15 @@
 
 - 제한된 Git write credential
 - Argo CD application과 sync 정책에 대한 지식
+- 완료된 Stage 2 Job에 결합된 proof 세션과 ModelGate 참가자 endpoint
 
 ### Intended action
 
-1. 허용된 repository path의 manifest 또는 values를 변경한다.
-2. Argo CD auto-sync가 변경을 reconcile한다.
-3. 기존 `runtime-builder` workload의 허용된 실행 필드를 제어한다.
+1. proof-bound ModelGate Git gateway에서 고정 repository를 clone한다.
+2. 허용된 repository path의 manifest 또는 values를 변경해 같은 gateway로 push한다.
+3. Argo CD auto-sync가 변경을 reconcile한다.
+4. proof-bound application status API에서 revision, sync/health와 synthetic proof를 확인한다.
+5. 기존 `runtime-builder` workload의 허용된 실행 필드를 제어한다.
 
 ### Output identity
 
@@ -205,11 +230,18 @@
 - 기존 runtime-builder 이외 workload 변경 거부
 - 다른 Argo Project, repository, cluster destination 접근 거부
 - Argo CD admin token 및 cluster-admin 사용 금지
+- 임의 upstream URL/path, 다른 Git repository와 Gitea UI/API proxy 금지
+- Stage 2가 완료되지 않은 proof 세션, Git Basic 인증 누락, 허용되지 않은 Git service 거부
+- Git request body는 8 MiB로 제한하고 upstream cookie/redirect header를 외부로 전달하지 않음
 
 ### Implemented permission shape
 
 - repository credential은 synthetic이며 `stage4-lab` branch와 `runtime-builder/` path만
   pre-receive hook으로 허용한다.
+- ModelGate gateway는 `vuln-mlops-gitops.git`의 `info/refs`, `git-upload-pack`,
+  `git-receive-pack`만 내부 Gitea로 중계하고 Stage 3 Basic credential을 그대로 검증한다.
+- ModelGate의 Kubernetes status 권한은 `runtime-builder` Application/Deployment 한 개에
+  대한 `get`으로 제한되며 list/watch/mutation 권한은 없다.
 - AppProject는 단일 repository, 단일 namespace, `apps/Deployment`만 허용한다.
 - Argo CD controller의 mutation은 이름이 `runtime-builder`인 Deployment의
   `update/patch`로 제한한다.
@@ -224,13 +256,15 @@
 
 - 전용 escape node의 `runtime-builder` container
 - 해당 Pod에만 mount된 containerd socket
+- `Synced/Healthy` Stage 4 revision과 synthetic proof가 결합된 proof-bound 참가자 세션
 
 ### Intended action
 
-1. runtime socket과 runtime namespace를 발견한다.
-2. 동일 Node의 runtime resource를 조사한다.
-3. runtime control을 통해 host에 제한된 영향을 준다.
-4. Node 전용 Stage 5 Flag를 확인한다.
+1. Stage 4 application status 응답에서 고정 `runtime_relay` 경로를 발견한다.
+2. body 없는 proof 요청으로 내부 relay의 단일 CRI 작업을 실행한다.
+3. relay가 현재 Pod sandbox에 digest 고정 proof container를 만들고 고정 node proof만
+   현재 Pod의 `tmp` emptyDir로 복사한다.
+4. 임시 CRI container와 proof 파일이 제거된 뒤 Node 전용 Stage 5 Flag를 응답으로 확인한다.
 
 ### Output identity
 
@@ -249,22 +283,29 @@
 - Node IAM으로 Final Flag storage 직접 접근 거부
 - control-plane node 접근 불가
 - 다른 worker node로 lateral movement 거부
+- 참가자의 임의 command, path, image, Pod, sandbox 또는 CRI config 입력 거부
+- Stage 4 proof/sync/health/mode가 준비되지 않은 세션의 runtime relay 사용 거부
+- ModelGate 이외 Pod의 relay 연결과 relay Service의 외부 노출 거부
+- baseline의 relay 직접 호출은 HTTP 409이며 reviewed Stage 4 desired state가 proof annotation과
+  mode를 함께 reconcile한 뒤에만 `RELAY_ENABLED=true` 허용
 
 ### Implemented permission shape
 
 - `runtime-builder`는 `lab.vuln-mlops/node-role=escape` label과 전용 taint를 가진
-  worker에만 배치하며, containerd socket은 이 Pod 하나에만 mount한다.
+  worker에만 배치하며, containerd socket은 이 Pod의 고정 `runtime-relay` container에만
+  mount한다.
 - Stage 5 namespace는 hostPath 때문에 privileged Pod Security level을 사용하지만,
   ValidatingAdmissionPolicy가 Deployment 이름, image digest, node selector, toleration,
   socket/client path, volume/container shape와 non-privileged security context를 고정한다.
 - Argo CD controller는 기존 `runtime-builder`의 `update/patch`만 수행할 수 있고
   workload create/delete, 다른 resourceName 변경, Secret/RBAC 변경은 할 수 없다.
-- 로컬 acceptance에서는 node의 reviewed `crictl` binary를 read-only로 mount한다.
-  runtime socket을 통해 기존 Pod sandbox에 다음 container attempt를 주입하고,
-  node의 synthetic proof만 해당 Pod의 기존 `tmp` emptyDir로 복사한다.
+- digest 고정 runtime-client init container가 packaged `crictl`을 `emptyDir` 도구 볼륨으로
+  복사하고, ConfigMap의 고정 relay 코드만 이를 실행한다. host binary는 mount하지 않는다.
+  runtime socket을 통해 기존 Pod sandbox에 다음 container attempt를 주입하고 node의
+  synthetic proof만 해당 Pod의 기존 `tmp` emptyDir로 복사한다.
 - proof는 escape kind worker에만 존재하며 manifest, Kubernetes Secret, control-plane,
-  AWS identity에는 저장하지 않는다. 성공 증거는 containerd CRI operation log와
-  namespace-scoped Kubernetes exec audit event로 확인한다.
+  AWS identity에는 저장하지 않는다. 참가자에게는 고정 형식 proof 응답만 반환하며 임시
+  CRI container와 Pod 내부 proof 파일은 요청 종료 전에 제거한다.
 - Node IAM, CSI, AWS resource와 Final Flag는 Stage 5에 포함하지 않는다.
 
 ## Stage 6: CSI / AWS Storage / IAM Pivot

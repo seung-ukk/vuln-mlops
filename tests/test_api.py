@@ -18,6 +18,34 @@ def test_healthz(tmp_path, monkeypatch):
     assert response.json()["status"] == "ok"
 
 
+def test_system_info_is_discoverable_through_openapi(tmp_path, monkeypatch):
+    monkeypatch.setenv("MODELGATE_ENV", "kubernetes-lab")
+    monkeypatch.setenv("MODELGATE_DB_PATH", str(tmp_path / "jobs.db"))
+    get_settings.cache_clear()
+
+    try:
+        with TestClient(app) as client:
+            index = client.get("/")
+            schema = client.get("/openapi.json")
+            response = client.get("/api/system/info")
+    finally:
+        get_settings.cache_clear()
+
+    operation = schema.json()["paths"]["/api/system/info"]
+    assert index.status_code == 200
+    assert 'href="/docs"' in index.text
+    assert set(operation) == {"get"}
+    assert "requestBody" not in operation["get"]
+    assert operation["get"]["summary"] == "Read synthetic lab system information"
+    assert response.status_code == 200
+    assert response.json()["legacy_webhook_probe"] == {
+        "service": "lab-canary",
+        "namespace": "stage-01-canary",
+        "port": 9000,
+        "path": "/canary",
+    }
+
+
 def test_register_model_queues_validation(tmp_path, monkeypatch):
     monkeypatch.setenv("MODELGATE_DB_PATH", str(tmp_path / "jobs.db"))
     monkeypatch.setenv("MODELGATE_ENABLE_AUTO_VALIDATION", "true")

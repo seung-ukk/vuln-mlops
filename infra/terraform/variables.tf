@@ -78,6 +78,29 @@ variable "public_access_cidrs" {
   }
 }
 
+variable "enable_modelgate_public_access" {
+  description = "Create the single-EIP infrastructure used by the optional ModelGate public NLB."
+  type        = bool
+  default     = false
+}
+
+variable "participant_access_cidrs" {
+  description = "Exact participant public IPv4 /32 CIDRs allowed to reach the ModelGate NLB."
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition = alltrue([
+      for cidr in var.participant_access_cidrs :
+      can(cidrhost(cidr, 0)) &&
+      can(regex("^([0-9]{1,3}\\.){3}[0-9]{1,3}/32$", cidr)) &&
+      endswith(cidr, "/32") &&
+      cidr != "0.0.0.0/0"
+    ])
+    error_message = "Every participant CIDR must be an exact public IPv4 /32; broad CIDRs are forbidden."
+  }
+}
+
 variable "general_instance_types" {
   description = "On-demand instance types for normal Stage 1-4 workloads."
   type        = list(string)

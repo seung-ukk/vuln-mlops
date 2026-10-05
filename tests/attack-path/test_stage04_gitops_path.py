@@ -61,3 +61,48 @@ def test_stage4_operational_images_and_gitea_health_are_pinned():
     redis_secret = docs("redis-secret.yaml")[0]
     assert redis_secret["metadata"]["name"] == "argocd-redis"
     assert redis_secret["stringData"] == {"auth": "SYNTHETIC_STAGE4_REDIS_PASSWORD"}
+
+
+def test_modelgate_can_reach_only_gitea_and_read_fixed_reconciliation_status():
+    policies = docs("network-policy.yaml")
+    egress = next(
+        item for item in policies
+        if item["metadata"]["name"] == "modelgate-stage-04-git-egress"
+    )
+    assert egress["spec"]["podSelector"] == {
+        "matchLabels": {"app.kubernetes.io/name": "modelgate"}
+    }
+    assert egress["spec"]["egress"] == [
+        {
+            "to": [
+                {
+                    "namespaceSelector": {
+                        "matchLabels": {
+                            "kubernetes.io/metadata.name": "stage-04-gitops"
+                        }
+                    },
+                    "podSelector": {"matchLabels": {"app": "gitea"}},
+                }
+            ],
+            "ports": [{"protocol": "TCP", "port": 3000}],
+        }
+    ]
+
+    role = next(
+        item for item in docs("participant-status-rbac.yaml")
+        if item["kind"] == "Role"
+    )
+    assert role["rules"] == [
+        {
+            "apiGroups": ["argoproj.io"],
+            "resources": ["applications"],
+            "resourceNames": ["runtime-builder"],
+            "verbs": ["get"],
+        },
+        {
+            "apiGroups": ["apps"],
+            "resources": ["deployments"],
+            "resourceNames": ["runtime-builder"],
+            "verbs": ["get"],
+        },
+    ]

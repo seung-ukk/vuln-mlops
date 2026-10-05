@@ -2,6 +2,7 @@ from pathlib import Path
 
 import yaml
 
+from modelgate.discovery import build_system_info
 from poc.ssrf_canary import CANARY_TARGETS, CANARY_VALUE, selected_canary_target
 
 
@@ -28,6 +29,33 @@ def test_eks_poc_uses_only_the_fixed_internal_canary(monkeypatch) -> None:
 
     monkeypatch.setenv("POC_CANARY_TARGET", "eks")
     assert selected_canary_target() == CANARY_TARGETS["eks"]
+
+
+def test_system_info_reveals_a_composable_canary_hint() -> None:
+    body = build_system_info("kubernetes-lab").model_dump()
+    assert body == {
+        "service": "modelgate",
+        "environment": "kubernetes-lab",
+        "legacy_webhook_probe": {
+            "service": "lab-canary",
+            "namespace": "stage-01-canary",
+            "port": 9000,
+            "path": "/canary",
+        },
+    }
+
+    probe = body["legacy_webhook_probe"]
+    discovered_target = (
+        f"http://{probe['service']}.{probe['namespace']}.svc.cluster.local:"
+        f"{probe['port']}{probe['path']}"
+    )
+    assert discovered_target == CANARY_TARGETS["eks"]
+
+    index = (ROOT / "modelgate" / "static" / "index.html").read_text()
+    main = (ROOT / "modelgate" / "main.py").read_text()
+    assert 'href="/docs"' in index
+    assert '"/api/system/info"' in main
+    assert 'summary="Read synthetic lab system information"' in main
 
 
 def test_eks_overlay_composes_the_canary_and_exact_modelgate_patch() -> None:

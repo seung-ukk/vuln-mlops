@@ -58,10 +58,21 @@ Useful API endpoints:
 | --- | --- | --- |
 | `POST` | `/api/artifacts` | Upload a zipped MLflow model bundle and receive its artifact URI |
 | `GET` | `/api/proofs/rce/{proof_id}` | Verify a fixed marker without returning file content |
+| `GET` | `/api/lab/footholds/{proof_id}/self-rules` | Review the RCE foothold's bounded Stage 2 permissions |
+| `POST` | `/api/lab/footholds/{proof_id}/stage-02/job` | Submit the fixed Stage 2 reader Job |
+| `GET` | `/api/lab/footholds/{proof_id}/stage-02/job` | Poll the fixed Stage 2 reader Job |
+| `GET` | `/api/lab/footholds/{proof_id}/stage-02/log` | Read only the fixed synthetic Stage 2 proof log |
+| `GET` | `/api/lab/footholds/{proof_id}/stage-03/datasources` | Discover the bounded Grafana datasource after Stage 2 completion |
+| `GET` | `/api/lab/footholds/{proof_id}/stage-03/query` | Query only the fixed topology metric through Grafana |
+| `GET` | `/api/lab/footholds/{proof_id}/stage-03/exchange/{credential_ref}` | Exchange only the discovered synthetic credential reference |
+| `GET/POST` | `/api/lab/footholds/{proof_id}/stage-04/git/vuln-mlops-gitops.git/...` | Fixed Git smart-HTTP gateway for the single lab repository |
+| `GET` | `/api/lab/footholds/{proof_id}/stage-04/application` | Read normalized `runtime-builder` Argo reconciliation status |
+| `POST` | `/api/lab/footholds/{proof_id}/stage-05/runtime/proof` | Run the fixed synthetic runtime proof after Stage 4 reconciliation |
 | `POST` | `/api/models` | Register a model version and queue validation |
 | `GET` | `/api/models/{name}` | Read registry metadata |
 | `POST` | `/api/models/{name}/versions/{version}/validate` | Queue validation |
 | `POST` | `/api/models/{name}/versions/{version}/approve` | Set `champion` alias |
+| `GET` | `/api/system/info` | Read bounded synthetic lab discovery hints |
 | `POST` | `/api/webhooks` | Create a registry webhook |
 | `POST` | `/api/webhooks/{id}/test` | Test webhook delivery through MLflow |
 | `GET` | `/api/jobs/{id}` | Read validation result |

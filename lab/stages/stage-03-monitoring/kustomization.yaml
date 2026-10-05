@@ -6,4 +6,5 @@ resources:
   - config.yaml
   - workloads.yaml
   - services.yaml
+  - session.yaml
   - network-policy.yaml
