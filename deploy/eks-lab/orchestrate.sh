@@ -7,9 +7,14 @@ TF_DIR="${ROOT_DIR}/infra/terraform"
 FOUNDATION_BOOTSTRAP="${TF_DIR}/bootstrap.sh"
 STAGE4_DIR="${ROOT_DIR}/lab/stages/stage-04-gitops"
 STAGE5_BASE="${ROOT_DIR}/lab/stages/stage-05-runtime/runtime-builder-base.yaml"
+STAGE5_ADMISSION="${ROOT_DIR}/lab/stages/stage-05-runtime/admission-policy.yaml"
 SCOPE_HOOK="${STAGE4_DIR}/scope-hook.sh"
 STAGE3_OVERLAY="${SCRIPT_DIR}/stage-03"
 STAGE5_OVERLAY="${SCRIPT_DIR}/stage-05"
+IAM_STAGE5_DIR="${ROOT_DIR}/lab/stages/stage-05-iam-app"
+IAM_STAGE5_OVERLAY="${SCRIPT_DIR}/stage-05-iam"
+IAM_MIGRATION_OVERLAY="${SCRIPT_DIR}/stage-05-iam-migrate"
+IAM_REPOSITORY_README="${IAM_STAGE5_DIR}/repository/runtime-builder/README.md"
 ACCEPTANCE_SCRIPT="${SCRIPT_DIR}/acceptance.sh"
 
 GITEA_NAMESPACE="stage-04-gitops"
@@ -22,6 +27,7 @@ FIELD_MANAGER="vuln-mlops-stage4"
 COMMAND="${1:-}"
 AUTO_APPROVE=false
 SKIP_FOUNDATION=false
+STAGE5_IAM=false
 
 usage() {
   cat <<'EOF'
@@ -30,10 +36,13 @@ Usage:
   AWS_PROFILE=<non-root-profile> POC_PYTHON=<python-3.11> ./deploy/eks-lab/orchestrate.sh accept
   AWS_PROFILE=<non-root-profile> ./deploy/eks-lab/orchestrate.sh reset
   AWS_PROFILE=<non-root-profile> ./deploy/eks-lab/orchestrate.sh status
+  AWS_PROFILE=<non-root-profile> RUNTIME_BUILDER_IMAGE=ghcr.io/seung-ukk/vuln-mlops@sha256:<digest> ./deploy/eks-lab/orchestrate.sh deploy --skip-foundation --stage5-iam
 
 deploy provisions/resumes the Terraform foundation, applies the Stage 1-5 EKS
 composition, and creates the fixed synthetic Gitea baseline. --skip-foundation
 uses the existing Terraform outputs without applying infrastructure.
+--stage5-iam selects the new IRSA/S3 capstone. It requires a published OCI
+index digest and the Terraform runtime-builder role/bucket outputs.
 EOF
 }
 
@@ -47,6 +56,7 @@ while (($#)); do
   case "$1" in
     --auto-approve) AUTO_APPROVE=true ;;
     --skip-foundation) SKIP_FOUNDATION=true ;;
+    --stage5-iam) STAGE5_IAM=true ;;
     -h|--help) usage; exit 0 ;;
     *) printf 'ERROR: unknown argument: %s\n' "$1" >&2; usage >&2; exit 2 ;;
   esac
@@ -92,6 +102,36 @@ cleanup() {
 }
 trap cleanup EXIT
 
+render_iam_template() {
+  sed \
+    -e "s|__RUNTIME_BUILDER_IMAGE__|${RUNTIME_BUILDER_IMAGE}|g" \
+    -e "s|__RUNTIME_BUILDER_ROLE_ARN__|${IAM_ROLE_ARN}|g" \
+    -e "s|__RUNTIME_PROOF_BUCKET__|${IAM_PROOF_BUCKET}|g" \
+    -e "s|__AWS_REGION__|${IAM_REGION}|g" \
+    "$1"
+}
+
+prepare_iam_stage5() {
+  if [[ ! "${RUNTIME_BUILDER_IMAGE:-}" =~ ^ghcr\.io/seung-ukk/vuln-mlops@sha256:[a-f0-9]{64}$ ]]; then
+    printf 'ERROR: RUNTIME_BUILDER_IMAGE must be the reviewed GHCR OCI digest.\n' >&2
+    exit 1
+  fi
+  IAM_ROLE_ARN="$(tf output -raw runtime_builder_irsa_role_arn)"
+  IAM_PROOF_BUCKET="$(tf output -raw runtime_proof_bucket)"
+  IAM_REGION="$(tf output -raw region)"
+  if [[ ! "$IAM_ROLE_ARN" =~ ^arn:aws:iam::[0-9]{12}:role/[a-zA-Z0-9+=,.@_-]+$ ||
+        ! "$IAM_PROOF_BUCKET" =~ ^[a-z0-9][a-z0-9.-]{2,62}$ ||
+        ! "$IAM_REGION" =~ ^[a-z]{2}-[a-z]+-[0-9]+$ ]]; then
+    printf 'ERROR: unexpected Terraform runtime-builder role, bucket, or region output.\n' >&2
+    exit 1
+  fi
+  STAGE5_BASE="${WORK_DIR}/runtime-builder-base.yaml"
+  STAGE5_ADMISSION="${WORK_DIR}/admission-policy.yaml"
+  STAGE5_OVERLAY="$IAM_MIGRATION_OVERLAY"
+  render_iam_template "${IAM_STAGE5_DIR}/runtime-builder-base.yaml.in" >"$STAGE5_BASE"
+  render_iam_template "${IAM_STAGE5_DIR}/admission-policy.yaml.in" >"$STAGE5_ADMISSION"
+}
+
 tf() {
   terraform -chdir="$TF_DIR" "$@"
 }
@@ -112,12 +152,28 @@ configure_kubeconfig() {
   kubectl wait --for=condition=Ready nodes --all --timeout=15m
 }
 
+guard_active_stage5_profile() {
+  local active_sa
+  active_sa="$(kubectl -n stage-05-runtime get deployment/runtime-builder \
+    -o jsonpath='{.spec.template.spec.serviceAccountName}' 2>/dev/null || true)"
+  if [[ "$active_sa" == "runtime-builder-iam" && "$STAGE5_IAM" == false ]]; then
+    printf 'ERROR: this cluster uses the IAM Stage 5 app; pass --stage5-iam and its pinned image.\n' >&2
+    exit 1
+  fi
+}
+
 apply_stage_composition() {
   local crd
 
   # Preserve the client-side ownership used by the existing Stage 1-3 deploy.
   # Argo CD resources are deliberately excluded from this apply unit.
-  kubectl apply -k "$STAGE3_OVERLAY"
+  if [[ "$STAGE5_IAM" == true ]]; then
+    kubectl kustomize "$STAGE3_OVERLAY" | \
+      sed -E "s|ghcr\\.io/seung-ukk/vuln-mlops@sha256:[a-f0-9]{64}|${RUNTIME_BUILDER_IMAGE}|g" | \
+      kubectl apply -f -
+  else
+    kubectl apply -k "$STAGE3_OVERLAY"
+  fi
 
   for crd in \
     application-crd-v3.5.3.yaml \
@@ -130,10 +186,24 @@ apply_stage_composition() {
       -f "${STAGE4_DIR}/vendor/${crd}"
   done
 
+  if [[ "$STAGE5_IAM" == true ]]; then
+    kubectl kustomize "$STAGE5_OVERLAY" | render_iam_template /dev/stdin | \
+      kubectl apply --server-side --field-manager="$FIELD_MANAGER" -f -
+  else
+    kubectl apply \
+      --server-side \
+      --field-manager="$FIELD_MANAGER" \
+      -k "$STAGE5_OVERLAY"
+  fi
+}
+
+preapply_stage5_admission() {
+  # A changed relay digest must be admitted before the baseline Git revision is
+  # pushed. The existing Deployment stays in place until Argo reconciles it.
   kubectl apply \
     --server-side \
     --field-manager="$FIELD_MANAGER" \
-    -k "$STAGE5_OVERLAY"
+    -f "$STAGE5_ADMISSION"
 }
 
 wait_for_workloads() {
@@ -269,6 +339,10 @@ push_baseline() {
   mkdir -p "${repository_dir}/runtime-builder"
   cp "$STAGE5_BASE" "${repository_dir}/runtime-builder/deployment.yaml"
   git -C "$repository_dir" add runtime-builder/deployment.yaml
+  if [[ "$STAGE5_IAM" == true ]]; then
+    cp "$IAM_REPOSITORY_README" "${repository_dir}/runtime-builder/README.md"
+    git -C "$repository_dir" add runtime-builder/README.md
+  fi
 
   if git -C "$repository_dir" diff --cached --quiet; then
     baseline_sha="$(git -C "$repository_dir" rev-parse HEAD)"
@@ -365,6 +439,22 @@ case "$COMMAND" in
       "$FOUNDATION_BOOTSTRAP" "${bootstrap_args[@]}"
     fi
     configure_kubeconfig
+    guard_active_stage5_profile
+    if [[ "$STAGE5_IAM" == true ]]; then
+      if ! kubectl -n stage-05-runtime get deployment/runtime-builder >/dev/null 2>&1; then
+        printf 'ERROR: --stage5-iam currently requires the existing Stage 5 Deployment.\n' >&2
+        exit 1
+      fi
+      prepare_iam_stage5
+      preapply_stage5_admission
+      apply_stage_composition
+      wait_for_workloads
+      bootstrap_git_baseline
+      kubectl -n stage-05-runtime rollout status deployment/runtime-builder --timeout=10m
+      show_status
+      exit 0
+    fi
+    preapply_stage5_admission
     restore_existing_git_baseline
     apply_stage_composition
     wait_for_workloads
@@ -373,13 +463,29 @@ case "$COMMAND" in
     ;;
   reset)
     configure_kubeconfig
+    guard_active_stage5_profile
+    if [[ "$STAGE5_IAM" == true ]]; then
+      if [[ "$(kubectl -n stage-05-runtime get deployment/runtime-builder \
+          -o jsonpath='{.spec.template.spec.serviceAccountName}')" != "runtime-builder-iam" ]]; then
+        printf 'ERROR: deploy the IAM Stage 5 app before using --stage5-iam reset.\n' >&2
+        exit 1
+      fi
+      prepare_iam_stage5
+    fi
     wait_for_workloads
     bootstrap_git_baseline
     reset_transient_resources
     show_status
     ;;
   accept)
-    configure_kubeconfig
+    if [[ "$STAGE5_IAM" == false ]]; then
+      configure_kubeconfig
+      guard_active_stage5_profile
+    fi
+    if [[ "$STAGE5_IAM" == true ]]; then
+      printf 'ERROR: IAM acceptance is not implemented yet; use the participant PoC.\n' >&2
+      exit 2
+    fi
     wait_for_workloads
     bootstrap_git_baseline
     reset_transient_resources

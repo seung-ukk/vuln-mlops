@@ -112,7 +112,7 @@ module "eks" {
 
   authentication_mode                      = "API"
   enable_cluster_creator_admin_permissions = false
-  enable_irsa                              = false
+  enable_irsa                              = true
   endpoint_private_access                  = true
   endpoint_public_access                   = true
   endpoint_public_access_cidrs             = var.public_access_cidrs

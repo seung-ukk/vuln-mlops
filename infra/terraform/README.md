@@ -14,10 +14,16 @@ This directory creates only the AWS foundation for Stages 1-5:
   groups;
 - all five EKS control-plane log types retained in CloudWatch.
 
-It intentionally does not create Stage 6 storage, CSI permissions, application AWS
-identities, public load balancers, DNS, certificates, scoring services, or final flags.
+It also creates a private synthetic S3 proof bucket and a narrowly scoped
+runtime-builder IRSA role for the proposed IAM capstone. Terraform does not
+store or upload the proof object's body. See
+`docs/RUNTIME_BUILDER_IRSA_PROBE.md` before applying this change to an existing
+cluster. CSI permissions, production storage, DNS, certificates, and scoring
+services remain out of scope.
 
-The escape worker accepts control-plane traffic only on the reviewed EKS node ports.
+The escape worker accepts control-plane traffic on the reviewed EKS node ports and
+TCP 8080 from the general worker security group for the fixed Stage 5 runtime relay.
+The relay Pod also requires the matching namespace- and Pod-scoped NetworkPolicies.
 It cannot initiate arbitrary traffic or connect to the general workers except for
 TCP/UDP DNS on port 53; HTTPS egress remains available for bootstrap, EKS, registry,
 and AWS API access. Kubernetes NetworkPolicy remains the workload-level boundary.

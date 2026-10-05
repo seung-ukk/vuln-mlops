@@ -1,0 +1,57 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: runtime-builder-irsa-probe
+  namespace: stage-05-runtime
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels: {app: runtime-builder-irsa-probe}
+    spec:
+      serviceAccountName: runtime-builder-iam
+      automountServiceAccountToken: false
+      restartPolicy: Never
+      nodeSelector: {lab.vuln-mlops/node-role: general, kubernetes.io/arch: amd64}
+      securityContext: {runAsUser: 0, runAsGroup: 0, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: probe
+          image: amazon/aws-cli:2.31.16@sha256:e8bc8cadbe3cdd9b32c86efe61bebd90060b04e4fb3ba029f1672dfe0f0e8f12
+          command: [/bin/sh, -ec]
+          args:
+            - |
+              account="$(aws sts get-caller-identity --query Account --output text)"
+              arn="$(aws sts get-caller-identity --query Arn --output text)"
+              case "$arn" in
+                arn:aws:sts::*:assumed-role/*runtime-builder/*) ;;
+                *) echo 'Unexpected IAM identity' >&2; exit 1 ;;
+              esac
+              aws s3api get-object --bucket "$PROOF_BUCKET" --key proof/final-flag.txt /tmp/proof >/dev/null
+              if ! grep -Eq '^FLAG\{stage_5_iam_[a-z0-9_]+\}$' /tmp/proof; then
+                echo 'Unexpected proof object shape' >&2
+                exit 1
+              fi
+              printf 'account=%s\nrole=%s\n' "$account" "$arn"
+              cat /tmp/proof
+              if aws s3api head-bucket --bucket "$PROOF_BUCKET" >/dev/null 2>&1; then
+                echo 'Unexpected bucket-wide permission' >&2
+                exit 1
+              fi
+              echo 'bucket-wide access denied'
+          env:
+            - {name: PROOF_BUCKET, value: "__PROOF_BUCKET__"}
+            - {name: AWS_DEFAULT_REGION, value: "__AWS_REGION__"}
+            - {name: AWS_EC2_METADATA_DISABLED, value: "true"}
+            - {name: HOME, value: /tmp}
+          resources:
+            requests: {cpu: 10m, memory: 64Mi}
+            limits: {cpu: 250m, memory: 256Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - {name: tmp, emptyDir: {}}

@@ -73,6 +73,21 @@ output "aws_load_balancer_controller_role_arn" {
   value       = try(module.aws_load_balancer_controller_pod_identity[0].iam_role_arn, null)
 }
 
+output "runtime_builder_irsa_role_arn" {
+  description = "IAM role trusted only by the Stage 5 runtime-builder ServiceAccount."
+  value       = aws_iam_role.runtime_builder.arn
+}
+
+output "runtime_proof_bucket" {
+  description = "Private lab-only S3 bucket. Terraform does not manage its proof object."
+  value       = aws_s3_bucket.runtime_proof.bucket
+}
+
+output "runtime_proof_object_key" {
+  description = "Only object key readable by the runtime-builder IAM role."
+  value       = local.runtime_proof_object_key
+}
+
 output "node_security_group_ids" {
   description = "Distinct security-group boundaries for the general and escape workers."
   value = {

@@ -157,8 +157,24 @@ wait_for_participant_argo_revision() {
 }
 
 printf '\n[Stage 1] synthetic SSRF and marker-only RCE\n'
-start_port_forward modelgate-lab service/modelgate 80
-modelgate_url="http://127.0.0.1:$(forwarded_port)"
+if [[ -n "${POC_MODELGATE_URL:-}" ]]; then
+  modelgate_url="${POC_MODELGATE_URL%/}"
+else
+  start_port_forward modelgate-lab service/modelgate 80
+  modelgate_url="http://127.0.0.1:$(forwarded_port)"
+fi
+modelgate_ready=false
+for _ in $(seq 1 60); do
+  if curl -fsS --max-time 5 "${modelgate_url}/readyz" >/dev/null 2>&1; then
+    modelgate_ready=true
+    break
+  fi
+  sleep 2
+done
+if [[ "$modelgate_ready" != true ]]; then
+  printf 'ERROR: ModelGate participant endpoint is not ready: %s\n' "$modelgate_url" >&2
+  exit 1
+fi
 POC_MODELGATE_URL="$modelgate_url" POC_CANARY_TARGET=eks \
   "$POC_PYTHON" "${ROOT_DIR}/poc/ssrf_canary.py"
 rce_result="$(POC_MODELGATE_URL="$modelgate_url" \
@@ -229,7 +245,22 @@ fi
 printf 'PASS: Stage 3 datasource discovery/exchange succeeded and arbitrary reference was denied.\n'
 
 printf '\n[Stage 4] restricted Git change to Argo reconciliation\n'
-git_url="http://${stage3_user}:${stage3_token}@127.0.0.1:$(forwarded_port)${stage4_gateway}"
+git_url="$("$POC_PYTHON" -c '
+import sys
+from urllib.parse import quote, urlsplit, urlunsplit
+
+base, user, token, path = sys.argv[1:]
+parts = urlsplit(base)
+if (parts.scheme not in ("http", "https") or not parts.netloc or
+        parts.path not in ("", "/") or parts.query or parts.fragment or
+        not path.startswith("/api/lab/footholds/") or
+        not path.endswith("/stage-04/git/vuln-mlops-gitops.git")):
+    raise SystemExit("ERROR: invalid fixed ModelGate Git gateway URL")
+encoded_user = quote(user, safe="")
+encoded_token = quote(token, safe="")
+authority = f"{encoded_user}:{encoded_token}@{parts.netloc}"
+print(urlunsplit((parts.scheme, authority, path, "", "")))
+' "$modelgate_url" "$stage3_user" "$stage3_token" "$stage4_gateway")"
 git clone --quiet --branch "$GIT_BRANCH" --single-branch "$git_url" "$GIT_REPOSITORY_DIR"
 git -C "$GIT_REPOSITORY_DIR" config user.name "$GITEA_USER"
 git -C "$GIT_REPOSITORY_DIR" config user.email lab@example.invalid

@@ -1,4 +1,6 @@
 from pathlib import Path
+import subprocess
+import sys
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -77,7 +79,7 @@ def test_acceptance_checks_representative_shortcut_denials() -> None:
     assert 'node-role\",\"value\":\"general' in text
     stage4 = text[text.index("[Stage 4]") : text.index("[Stage 5]")]
     assert "start_port_forward stage-04-gitops service/gitea 3000" not in stage4
-    assert "${stage4_gateway}" in stage4
+    assert '"$stage4_gateway"' in stage4
     stage5 = text[text.index("[Stage 5]") : text.index("[Cleanup]")]
     assert "kubectl exec" not in stage5
     assert "-d '{}'" in stage5
@@ -116,3 +118,38 @@ def test_acceptance_cleanup_does_not_reuse_a_stale_forwarded_port() -> None:
     assert cleanup.index("point_git_remote_at_current_forward") < cleanup.index(
         'push_git_manifest "$STAGE5_BASE"'
     )
+
+
+def test_public_participant_git_gateway_stays_on_the_fixed_proof_path() -> None:
+    text = ACCEPTANCE.read_text(encoding="utf-8")
+    stage4 = text[text.index("[Stage 4]") : text.index("[Stage 5]")]
+
+    assert 'not path.startswith("/api/lab/footholds/")' in stage4
+    assert 'not path.endswith("/stage-04/git/vuln-mlops-gitops.git")' in stage4
+    assert 'parts.scheme not in ("http", "https")' in stage4
+    assert 'parts.path not in ("", "/")' in stage4
+    assert 'encoded_user = quote(user, safe="")' in stage4
+    assert 'encoded_token = quote(token, safe="")' in stage4
+    assert '@127.0.0.1:$(forwarded_port)${stage4_gateway}' not in stage4
+
+    snippet_start = stage4.index('git_url="$("$POC_PYTHON" -c \'') + len(
+        'git_url="$("$POC_PYTHON" -c \'')
+    snippet_end = stage4.index("' \"$modelgate_url\"", snippet_start)
+    builder = stage4[snippet_start:snippet_end]
+    gateway = "/api/lab/footholds/proof/stage-04/git/vuln-mlops-gitops.git"
+
+    def build(base: str, path: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [sys.executable, "-c", builder, base, "lab-user", "token:@", path],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+    public = build("http://3.35.2.114", gateway)
+    assert public.returncode == 0
+    assert public.stdout.strip() == (
+        "http://lab-user:token%3A%40@3.35.2.114" + gateway
+    )
+    assert build("http://3.35.2.114/admin", gateway).returncode != 0
+    assert build("http://3.35.2.114", "/other.git").returncode != 0

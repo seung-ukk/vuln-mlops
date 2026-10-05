@@ -119,6 +119,37 @@ POC_PYTHON=/tmp/vuln-mlops-poc-venv/bin/python \
   ./deploy/eks-lab/orchestrate.sh accept
 ```
 
+To exercise the participant path through the allowlisted public ModelGate EIP instead
+of the operator port-forward, set `POC_MODELGATE_URL` to the reviewed endpoint:
+
+```bash
+AWS_PROFILE=vuln-mlops-admin \
+POC_PYTHON=/tmp/vuln-mlops-poc-venv/bin/python \
+POC_MODELGATE_URL=http://<modelgate-eip> \
+  ./deploy/eks-lab/orchestrate.sh accept
+```
+
+The harness still uses its temporary operator kubeconfig for setup, cleanup, and
+shortcut-denial checks. Stage 1-5 participant API and Git gateway traffic uses the
+specified ModelGate URL; the URL must be reachable from the allowlisted `/32`.
+
+## Runtime Builder IAM migration draft
+
+The current EKS deployment remains on the socket Stage 5 profile. After a new
+ModelGate/runtime-builder image is published and its OCI index digest is reviewed,
+`deploy --skip-foundation --stage5-iam` can migrate the existing Deployment to
+the IRSA/S3 capstone. Set `RUNTIME_BUILDER_IMAGE` to the full
+`ghcr.io/seung-ukk/vuln-mlops@sha256:<digest>` reference. The command reads the
+Terraform role ARN, bucket, and region outputs; it uses the new image for both
+ModelGate and runtime-builder, applies the IAM admission policy before pushing
+the new Gitea baseline, and adds the participant README to that baseline.
+It does not upload or rotate the synthetic S3 object.
+
+The IAM migration requires an existing socket Stage 5 Deployment. The IAM
+acceptance harness and public EIP validation remain pending. After migration,
+use `reset --stage5-iam` with the same pinned image; the unqualified socket
+deploy/reset/accept commands refuse to change an IAM Deployment.
+
 `reset` compares the fixed `stage4-lab:runtime-builder/` baseline through the installed
 pre-receive hook and creates a normal forward commit only when the content differs. It
 removes the fixed Stage 2 Job and any legacy temporary Stage 3 client Pod if they exist,

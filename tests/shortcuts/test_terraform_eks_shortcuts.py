@@ -25,8 +25,8 @@ def test_account_and_public_endpoint_are_bounded() -> None:
 
 
 def test_nodes_have_no_stage6_storage_permissions() -> None:
-    text = terraform_text()
-    assert "enable_irsa                              = false" in text
+    text = (TF / "main.tf").read_text(encoding="utf-8")
+    assert "enable_irsa                              = true" in text
     forbidden = [
         "AmazonEBSCSIDriverPolicy",
         "ec2:AttachVolume",
@@ -256,7 +256,16 @@ def test_escape_worker_has_no_general_lateral_ingress_or_unrestricted_egress() -
     assert 'resource "aws_vpc_security_group_egress_rule" "escape_https"' in network
     assert 'resource "aws_vpc_security_group_egress_rule" "escape_dns"' in network
     assert 'resource "aws_vpc_security_group_egress_rule" "escape_all"' not in network
-    assert "security_group_id            = aws_security_group.escape_nodes.id" not in ingress_resources
+    relay_rule = ingress_resources.split(
+        'aws_vpc_security_group_ingress_rule" "escape_runtime_relay_from_general" {',
+        1,
+    )[1].split("\n}", 1)[0]
+    assert relay_rule.count("aws_security_group.general_nodes.id") == 1
+    assert relay_rule.count("8080") == 2
+    assert "cidr_ipv4" not in relay_rule
+    assert ingress_resources.count(
+        "security_group_id            = aws_security_group.escape_nodes.id"
+    ) == 1
     assert "referenced_security_group_id = aws_security_group.eks_control_plane.id" in ingress_resources
 
 

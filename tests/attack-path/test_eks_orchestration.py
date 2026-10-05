@@ -52,6 +52,20 @@ def test_orchestrator_preserves_existing_apply_ownership_boundaries() -> None:
     assert "stage-05" not in stage3_overlay
 
 
+def test_orchestrator_admits_reviewed_relay_image_before_git_baseline_push() -> None:
+    text = script_text()
+    deploy_case = text[text.index("  deploy)") : text.index("  reset)")]
+
+    assert 'STAGE5_ADMISSION="${ROOT_DIR}/lab/stages/stage-05-runtime/admission-policy.yaml"' in text
+    assert '-f "$STAGE5_ADMISSION"' in text
+    assert text.index('preapply_stage5_admission() {') < text.index('restore_existing_git_baseline() {')
+    assert deploy_case.index("configure_kubeconfig") < deploy_case.rindex(
+        "preapply_stage5_admission"
+    ) < deploy_case.index("restore_existing_git_baseline") < deploy_case.rindex(
+        "apply_stage_composition"
+    )
+
+
 def test_orchestrator_waits_for_every_stage_workload() -> None:
     text = script_text()
 
@@ -156,3 +170,16 @@ def test_acceptance_uses_participant_runtime_relay_instead_of_operator_exec() ->
     assert "crictl" not in stage5
     assert "stage-05/runtime/proof" in stage5
     assert "body_status" in stage5
+
+
+def test_acceptance_uses_the_public_modelgate_endpoint_when_supplied() -> None:
+    text = ACCEPTANCE.read_text(encoding="utf-8")
+    participant = text[text.index("[Stage 1]") : text.index("[Cleanup]")]
+
+    assert 'if [[ -n "${POC_MODELGATE_URL:-}" ]]; then' in participant
+    assert 'modelgate_url="${POC_MODELGATE_URL%/}"' in participant
+    assert 'curl -fsS --max-time 5 "${modelgate_url}/readyz"' in participant
+    assert 'POC_MODELGATE_URL="$modelgate_url" POC_CANARY_TARGET=eks' in participant
+    assert 'base, user, token, path = sys.argv[1:]' in participant
+    assert '"$modelgate_url" "$stage3_user" "$stage3_token" "$stage4_gateway"' in participant
+    assert '"${modelgate_url}${runtime_relay}"' in participant

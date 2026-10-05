@@ -17,6 +17,7 @@ RUN pip install --no-cache-dir --requirement /opt/modelgate/requirements/base.tx
 
 COPY --chown=10001:10001 modelgate /opt/modelgate/modelgate
 COPY --chown=10001:10001 poc /opt/modelgate/poc
+COPY --chown=10001:10001 runtime_builder /opt/modelgate/runtime_builder
 
 USER 10001:10001
 

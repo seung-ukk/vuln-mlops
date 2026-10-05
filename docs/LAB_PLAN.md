@@ -127,6 +127,21 @@ Node 또는 CSI operational component의 신뢰관계를 이용해 실습 태그
 EBS/EFS resource에만 접근하고 Final Flag를 얻는다. 일반 application Pod와 Node IAM은
 최종 storage를 직접 읽을 수 없어야 한다.
 
+### 제안된 단순화: Runtime Builder IAM capstone
+
+팀 프로젝트의 범위를 줄이기 위해 기존 socket 기반 Stage 5와 미구현 Stage 6을
+`runtime-builder` 앱의 명령 주입과 IRSA 기반 실습 S3 접근으로 대체하는 안을
+진행 중이다. 기존 Stage 1~5 배포는 새 앱 이미지와 참가자 경로가 검증될 때까지
+유지한다. 이 경로가 입증하는 것은 Pod 앱 실행 권한에서 AWS IAM 권한으로 이어지는
+영향이며, node compromise 또는 CSI pivot을 주장하지 않는다.
+
+Stage 4의 제한된 Git 변경이 Argo를 통해 앱의 legacy build profile을 활성화한다.
+참가자는 Git 저장소의 README/Deployment와 공개 ModelGate API에서 빌드 요청 단서를
+찾고, 의도된 명령 조합 결함을 통해 앱의 IRSA 역할을 사용한다. 역할은 계정별 실습용
+비공개 S3 버킷의 정확한 합성 proof 객체만 읽을 수 있다. Flag는 Terraform state나
+Git에 저장하지 않으며 참가자 실습 전 무작위 합성 값으로 교체한다. 공개 응답은
+계정, assumed-role ARN, 검증된 합성 Flag만 반환한다.
+
 ## 5. 개발 및 배포 환경
 
 ### 로컬 개발

@@ -75,6 +75,22 @@ def test_git_desired_state_retains_socket_boundary_and_stage_proofs():
     assert template["spec"]["volumes"] == docs("runtime-builder-base.yaml")[0]["spec"]["template"]["spec"]["volumes"]
 
 
+def test_relay_downward_api_fields_match_kubernetes_defaulting_in_both_states():
+    for name in ("runtime-builder-base.yaml", "repository/runtime-builder/deployment.yaml"):
+        deployment = docs(name)[0]
+        containers = deployment["spec"]["template"]["spec"]["containers"]
+        relay = next(item for item in containers if item["name"] == "runtime-relay")
+        fields = {
+            item["name"]: item["valueFrom"]["fieldRef"]
+            for item in relay["env"]
+            if "valueFrom" in item
+        }
+        assert fields == {
+            "POD_NAME": {"apiVersion": "v1", "fieldPath": "metadata.name"},
+            "POD_UID": {"apiVersion": "v1", "fieldPath": "metadata.uid"},
+        }
+
+
 def test_runtime_relay_is_internal_fixed_and_proof_bound():
     items = docs("runtime-relay.yaml")
     config = next(item for item in items if item["kind"] == "ConfigMap")

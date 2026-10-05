@@ -1,0 +1,6 @@
+$patch: delete
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: runtime-builder
+  namespace: stage-05-runtime

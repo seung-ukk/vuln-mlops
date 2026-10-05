@@ -94,3 +94,17 @@ def test_participant_gateway_does_not_expose_gitea_or_broad_status_permissions()
     }
     modelgate_ingress = gateway_ingress["spec"]["ingress"][0]
     assert modelgate_ingress["ports"] == [{"protocol": "TCP", "port": 3000}]
+
+
+def test_vendor_namespace_does_not_relocate_cross_namespace_git_policies():
+    stage = yaml.safe_load((STAGE / "kustomization.yaml").read_text(encoding="utf-8"))
+    vendor = yaml.safe_load(
+        (STAGE / "vendor" / "kustomization.yaml").read_text(encoding="utf-8")
+    )
+    assert "namespace" not in stage
+    assert "vendor" in stage["resources"]
+    assert vendor["namespace"] == "stage-04-gitops"
+
+    policies = {item["metadata"]["name"]: item for item in docs("network-policy.yaml")}
+    assert policies["modelgate-stage-04-git-egress"]["metadata"]["namespace"] == "modelgate-lab"
+    assert policies["stage-04-git-client-egress"]["metadata"]["namespace"] == "stage-02-rbac"
