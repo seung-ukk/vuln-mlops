@@ -7,9 +7,10 @@ STAGE = ROOT / "lab" / "stages" / "stage-05-runtime"
 
 
 def docs(name):
+    path = ROOT / "lab" / "stages" / "runtime-relay" / name if name == "runtime-relay.yaml" else STAGE / name
     return [
         item
-        for item in yaml.safe_load_all((STAGE / name).read_text(encoding="utf-8"))
+        for item in yaml.safe_load_all(path.read_text(encoding="utf-8"))
         if item
     ]
 
@@ -82,7 +83,7 @@ def test_privilege_host_namespace_and_serviceaccount_shortcuts_are_denied():
 def test_node_proof_and_aws_credentials_are_not_present_in_manifests():
     manifest_text = "\n".join(
         path.read_text(encoding="utf-8")
-        for path in STAGE.rglob("*.yaml")
+        for path in list(STAGE.rglob("*.yaml")) + list((ROOT / "lab" / "stages" / "runtime-relay").rglob("*.yaml"))
         if path.name != "audit-policy.yaml"
     )
     assert "FLAG{stage_5_node_placeholder}" not in manifest_text

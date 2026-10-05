@@ -34,3 +34,14 @@ spec:
         - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: stage-05-runtime}}
           podSelector: {matchLabels: {app: runtime-builder}}
       ports: [{protocol: TCP, port: 8080}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: runtime-builder-maintenance-egress, namespace: stage-05-runtime}
+spec:
+  podSelector: {matchLabels: {app: runtime-builder}}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector: {matchLabels: {app: runtime-maintenance}}
+      ports: [{protocol: TCP, port: 8080}]

@@ -132,9 +132,11 @@ prepare_iam_stage5() {
   fi
   STAGE5_BASE="${WORK_DIR}/runtime-builder-base.yaml"
   STAGE5_ADMISSION="${WORK_DIR}/admission-policy.yaml"
+  STAGE5_RUNTIME_ADMISSION="${WORK_DIR}/runtime-maintenance-policy.yaml"
   STAGE5_OVERLAY="$IAM_MIGRATION_OVERLAY"
   render_iam_template "${IAM_STAGE5_DIR}/runtime-builder-base.yaml.in" >"$STAGE5_BASE"
   render_iam_template "${IAM_STAGE5_DIR}/admission-policy.yaml.in" >"$STAGE5_ADMISSION"
+  render_iam_template "${IAM_STAGE5_DIR}/runtime-maintenance-policy.yaml.in" >"$STAGE5_RUNTIME_ADMISSION"
 }
 
 tf() {
@@ -192,6 +194,10 @@ apply_stage_composition() {
   done
 
   if [[ "$STAGE5_IAM" == true ]]; then
+    # An older socket profile left a ModelGate-to-relay policy in the live
+    # cluster; apply does not prune it. Only the builder may reach the agent.
+    kubectl -n modelgate-lab delete networkpolicy/modelgate-runtime-relay-egress \
+      --ignore-not-found
     kubectl kustomize "$STAGE5_OVERLAY" | render_iam_template /dev/stdin | \
       kubectl apply --server-side --field-manager="$FIELD_MANAGER" -f -
   else
@@ -209,6 +215,10 @@ preapply_stage5_admission() {
     --server-side \
     --field-manager="$FIELD_MANAGER" \
     -f "$STAGE5_ADMISSION"
+  if [[ "$STAGE5_IAM" == true ]]; then
+    kubectl apply --server-side --field-manager="$FIELD_MANAGER" \
+      -f "$STAGE5_RUNTIME_ADMISSION"
+  fi
 }
 
 replace_iam_runtime_template() {
@@ -245,6 +255,9 @@ stage-04-gitops|statefulset/argocd-application-controller
 stage-04-gitops|deployment/gitea
 stage-05-runtime|deployment/runtime-builder
 EOF
+  if [[ "$STAGE5_IAM" == true ]]; then
+    kubectl -n stage-05-runtime rollout status deployment/runtime-maintenance --timeout=15m
+  fi
 }
 
 ensure_gitea_user() {
@@ -438,6 +451,10 @@ reset_transient_resources() {
   kubectl -n modelgate-lab rollout status deployment/modelgate --timeout=10m
   kubectl -n stage-05-runtime delete pod -l app=runtime-builder --wait=true
   kubectl -n stage-05-runtime rollout status deployment/runtime-builder --timeout=10m
+  if [[ "$STAGE5_IAM" == true ]]; then
+    kubectl -n stage-05-runtime delete pod -l app=runtime-maintenance --wait=true
+    kubectl -n stage-05-runtime rollout status deployment/runtime-maintenance --timeout=10m
+  fi
 }
 
 show_status() {
@@ -449,6 +466,9 @@ show_status() {
   kubectl -n stage-04-gitops get application runtime-builder \
     -o custom-columns='NAME:.metadata.name,SYNC:.status.sync.status,HEALTH:.status.health.status,REVISION:.status.sync.revision'
   kubectl -n stage-05-runtime get deployment runtime-builder
+  if [[ "$STAGE5_IAM" == true ]]; then
+    kubectl -n stage-05-runtime get deployment runtime-maintenance
+  fi
 }
 
 case "$COMMAND" in

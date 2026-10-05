@@ -133,26 +133,28 @@ The harness still uses its temporary operator kubeconfig for setup, cleanup, and
 shortcut-denial checks. Stage 1-5 participant API and Git gateway traffic uses the
 specified ModelGate URL; the URL must be reachable from the allowlisted `/32`.
 
-## Runtime Builder IAM migration draft
+## Runtime Builder IAM profile and independent runtime agent
 
-The current EKS deployment remains on the socket Stage 5 profile. After a new
-ModelGate/runtime-builder image is published and its OCI index digest is reviewed,
-`deploy --skip-foundation --stage5-iam` can migrate the existing Deployment to
-the IRSA/S3 capstone. Set `RUNTIME_BUILDER_IMAGE` to the full
+The personal EKS currently uses the IAM/S3 capstone. The next IAM deploy adds
+an independent `runtime-maintenance` agent on the escape worker for Stage 5-A.
+It reuses the fixed CRI proof operation and has no IRSA identity or Kubernetes
+token. The existing `runtime-builder` stays on a general worker with its narrow
+IRSA role for Stage 5-B. Set `RUNTIME_BUILDER_IMAGE` to the reviewed full
 `ghcr.io/seung-ukk/vuln-mlops@sha256:<digest>` reference. The command reads the
-Terraform role ARN, bucket, and region outputs; it uses the new image for both
-ModelGate and runtime-builder, applies the IAM admission policy before pushing
-the new Gitea baseline, and adds the participant README to that baseline.
+Terraform role ARN, bucket, and region outputs; it uses the new image for
+ModelGate, runtime-builder, and the runtime agent. It applies both admission
+policies before pushing the Gitea baseline and adds the participant README.
 It does not upload or rotate the synthetic S3 object.
 
-The IAM migration requires an existing socket Stage 5 Deployment. The IAM
-acceptance harness and public EIP validation remain pending. After migration,
-use `reset --stage5-iam` with the same pinned image; the unqualified socket
+The first IAM migration required an existing socket Stage 5 Deployment. The
+current IAM profile can be redeployed with the same command. The socket-only
+acceptance harness does not cover the dual capstone; use the public participant
+PoC for both paths. Use `reset --stage5-iam` with the same pinned image; the socket
 deploy/reset/accept commands refuse to change an IAM Deployment.
 
 `reset` compares the fixed `stage4-lab:runtime-builder/` baseline through the installed
 pre-receive hook and creates a normal forward commit only when the content differs. It
 removes the fixed Stage 2 Job and any legacy temporary Stage 3 client Pod if they exist,
 and recreates the
-ModelGate and runtime-builder Pods to clear ephemeral proof state. It does not force-push,
+ModelGate, runtime-builder, and runtime-maintenance Pods to clear ephemeral proof state. It does not force-push,
 delete namespaces or Terraform resources, or broaden Stage 4/5 RBAC.

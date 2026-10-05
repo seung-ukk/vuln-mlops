@@ -1,7 +1,7 @@
-# Runtime-builder IAM/S3 참가자 PoC 보충
+# Stage 5-A Runtime / 5-B IAM 참가자 PoC 보충
 
-현재 개인 EKS의 Stage 1~3은 [`PARTICIPANT_POC.md`](PARTICIPANT_POC.md)의
-공개 ModelGate 절차를 따른다. 이 문서는 Stage 4~5의 IAM 프로필 부분만 설명한다.
+Stage 1~3은 [`PARTICIPANT_POC.md`](PARTICIPANT_POC.md)의 공개 ModelGate
+절차를 따른다. 이 문서는 Stage 4 이후의 두 독립적인 최종 문제를 설명한다.
 참가자는 공개 ModelGate EIP와 proof-bound Git gateway만 사용한다. `kubectl`과
 AWS profile은 운영자 진단/초기화에만 사용한다.
 
@@ -16,9 +16,30 @@ IRSA/S3 proof를 설명한다. Deployment의 Pod template에
 `BUILDER_MODE=legacy-build` 값으로 변경한다. Image, ServiceAccount, node selector,
 volume과 권한은 변경하지 않는다. 변경을 push하고 ModelGate의
 `$API/stage-04/application`에서 새 revision, `Synced/Healthy`, Stage 4 proof와
-`builder_endpoint`를 확인한다.
+`runtime_relay`와 `builder_endpoint`를 확인한다. 두 경로는 Stage 4 proof를
+공유하지만 서로의 Flag를 요구하지 않는다.
 
-## Stage 5: build 입력에서 합성 IAM proof까지
+## Stage 5-A: 고정 runtime 작업으로 노드 경계 확인
+
+Gitea README와 Stage 4 application status는 별도 `runtime-maintenance` 에이전트의
+고정 runtime 경로를 알려준다. 에이전트는 전용 escape worker에만 배치되고
+IRSA 역할이나 Kubernetes token을 갖지 않는다. 공개 요청은 Git으로 활성화된
+builder를 통해서만 전달되며 ModelGate에서 에이전트로 직접 연결하지 않는다.
+
+```bash
+STATUS_JSON=$(curl -fsS "$API/stage-04/application")
+printf '%s' "$STATUS_JSON" | "$PY" -m json.tool
+RELAY_PATH=$(printf '%s' "$STATUS_JSON" | "$PY" -c \
+  'import json,sys; print(json.load(sys.stdin)["runtime_relay"])')
+curl -fsS -X POST "$BASE$RELAY_PATH" | "$PY" -m json.tool
+```
+
+기대 증거는 고정 CRI 작업의 성공과 `FLAG{stage_5_node_placeholder}`다.
+요청에는 body·명령·이미지·경로·Pod 이름을 넣지 않는다. 이 문제는
+containerd runtime 경계 접근과 합성 노드 파일 조회를 보이며 임의 노드
+명령권이나 완전한 노드 장악을 주장하지 않는다.
+
+## Stage 5-B: build 입력에서 합성 IAM proof까지
 
 아래 명령은 이전 단계에서 `BASE`, `API`, `PY` 변수가 설정됐다고 가정한다.
 

@@ -95,6 +95,10 @@ class FixedRuntimeRelay:
         return httpx.Response(200, json=self.payload)
 
 
+class FixedBuilderRelay(FixedRuntimeRelay):
+    pass
+
+
 def _proof(tmp_path, monkeypatch):
     proof_id = uuid4()
     proof_root = tmp_path / "proofs"
@@ -129,12 +133,32 @@ def test_stage5_proof_runs_only_the_fixed_runtime_operation(tmp_path, monkeypatc
     ]
 
 
+def test_iam_profile_exposes_independent_runtime_and_build_paths(tmp_path, monkeypatch):
+    proof_id = _proof(tmp_path, monkeypatch)
+    runtime = FixedBuilderRelay()
+
+    with TestClient(app) as client:
+        app.state.kubernetes_http = RuntimeKubernetes(stage5_mode="iam-build")
+        app.state.runtime_builder_http = runtime
+        status = client.get(f"/api/lab/footholds/{proof_id}/stage-04/application")
+        proof = client.post(f"/api/lab/footholds/{proof_id}/stage-05/runtime/proof")
+
+    assert status.status_code == 200
+    assert status.json()["runtime_relay"].endswith("/stage-05/runtime/proof")
+    assert status.json()["builder_endpoint"].endswith("/stage-05/build/info")
+    assert proof.status_code == 200
+    assert proof.json() == runtime.payload
+    assert runtime.calls == [("/runtime/proof", b"")]
+
+
 @pytest.mark.parametrize(
     "kubernetes",
     [
         RuntimeKubernetes(stage4_proof=None),
         RuntimeKubernetes(stage4_proof="wrong"),
         RuntimeKubernetes(stage5_mode="socket-present"),
+        RuntimeKubernetes(stage5_mode="iam-pending"),
+        RuntimeKubernetes(stage5_mode="iam-build", stage4_proof=None),
         RuntimeKubernetes(sync="OutOfSync"),
         RuntimeKubernetes(health="Progressing"),
     ],

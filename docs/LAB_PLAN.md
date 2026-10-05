@@ -11,16 +11,19 @@ Prometheus, Grafana, Argo CD, Kubernetes 및 AWS 구성요소는 검토 시점�
 안정 버전을 사용하고, 알려진 오래된 CVE가 아니라 운영상 잘못된 신뢰관계와
 권한 조합을 실습 대상으로 삼는다.
 
-현재 팀 실습에서 검증한 공격 그래프는 다음과 같다.
+현재 개인 EKS에서 검증된 5-B 경로와 새로 구성 중인 5-A 경로는 Stage 4
+이후 두 갈래로 나뉜다.
 
 ```text
 외부 사용자 → ModelGate SSRF/RCE → RBAC Job → monitoring credential
-  → 제한된 Git 변경 → Argo reconciliation → runtime-builder 명령 주입
-  → Pod IRSA → 실습용 S3 객체의 합성 Flag
+  → 제한된 Git 변경 → Argo reconciliation
+      ├─ 5-A: 독립 runtime-maintenance → containerd → 합성 노드 proof (배포 전)
+      └─ 5-B: runtime-builder 명령 주입 → Pod IRSA → 합성 S3 Flag (EKS 검증됨)
 ```
 
-아래 원래 계획의 socket/node/CSI 경로는 별도 확장안이다. 현재 IAM capstone의
-성공 증거로 노드 장악이나 CSI pivot을 주장하지 않는다.
+5-A는 기존 socket relay의 고정 CRI 작업을 독립 에이전트로 재사용한다. 아래 원래
+계획의 CSI 경로는 별도 확장안이다. 두 문제 모두 노드 장악이나 CSI pivot을
+성공 증거로 주장하지 않는다.
 
 ```text
 외부 사용자
