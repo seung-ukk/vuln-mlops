@@ -11,7 +11,16 @@ Prometheus, Grafana, Argo CD, Kubernetes 및 AWS 구성요소는 검토 시점�
 안정 버전을 사용하고, 알려진 오래된 CVE가 아니라 운영상 잘못된 신뢰관계와
 권한 조합을 실습 대상으로 삼는다.
 
-최종 목표는 다음 공격 그래프를 재현하는 것이다.
+현재 팀 실습에서 검증한 공격 그래프는 다음과 같다.
+
+```text
+외부 사용자 → ModelGate SSRF/RCE → RBAC Job → monitoring credential
+  → 제한된 Git 변경 → Argo reconciliation → runtime-builder 명령 주입
+  → Pod IRSA → 실습용 S3 객체의 합성 Flag
+```
+
+아래 원래 계획의 socket/node/CSI 경로는 별도 확장안이다. 현재 IAM capstone의
+성공 증거로 노드 장악이나 CSI pivot을 주장하지 않는다.
 
 ```text
 외부 사용자
@@ -127,13 +136,14 @@ Node 또는 CSI operational component의 신뢰관계를 이용해 실습 태그
 EBS/EFS resource에만 접근하고 Final Flag를 얻는다. 일반 application Pod와 Node IAM은
 최종 storage를 직접 읽을 수 없어야 한다.
 
-### 제안된 단순화: Runtime Builder IAM capstone
+### 현재 검증된 단순화: Runtime Builder IAM capstone
 
-팀 프로젝트의 범위를 줄이기 위해 기존 socket 기반 Stage 5와 미구현 Stage 6을
-`runtime-builder` 앱의 명령 주입과 IRSA 기반 실습 S3 접근으로 대체하는 안을
-진행 중이다. 기존 Stage 1~5 배포는 새 앱 이미지와 참가자 경로가 검증될 때까지
-유지한다. 이 경로가 입증하는 것은 Pod 앱 실행 권한에서 AWS IAM 권한으로 이어지는
-영향이며, node compromise 또는 CSI pivot을 주장하지 않는다.
+팀 프로젝트의 범위를 줄이기 위해 현재 개인 EKS에서는 기존 socket 기반
+Stage 5와 미구현 Stage 6 대신 `runtime-builder` 앱의 명령 주입과 IRSA 기반
+실습 S3 접근을 사용한다. 공개 참가자 경로에서 이 연결을 검증했다. 기존
+socket 경로는 저장소에 남은 별도 프로필이다. 현재 경로가 입증하는 것은
+Pod 앱 실행 권한에서 AWS IAM 권한으로 이어지는 영향이며, node compromise
+또는 CSI pivot을 주장하지 않는다.
 
 Stage 4의 제한된 Git 변경이 Argo를 통해 앱의 legacy build profile을 활성화한다.
 참가자는 Git 저장소의 README/Deployment와 공개 ModelGate API에서 빌드 요청 단서를

@@ -47,7 +47,7 @@ def test_participant_gateway_forwards_only_build_input_and_validated_proof(tmp_p
         info = client.get(f"/api/lab/footholds/{proof_id}/stage-05/build/info")
         build = client.post(
             f"/api/lab/footholds/{proof_id}/stage-05/build",
-            json={"source_ref": "main; python -m runtime_builder.aws_proof; #"},
+            json={"source_ref": "main; cd /opt/modelgate && python -m runtime_builder.aws_proof; #"},
         )
         result = client.get(f"/api/lab/footholds/{proof_id}/stage-05/aws-proof")
 
@@ -60,7 +60,7 @@ def test_participant_gateway_forwards_only_build_input_and_validated_proof(tmp_p
     assert result.json()["flag"] == "FLAG{stage_5_iam_placeholder}"
     assert builder.calls == [
         ("GET", "/build/info", None),
-        ("POST", "/build", {"source_ref": "main; python -m runtime_builder.aws_proof; #"}),
+        ("POST", "/build", {"source_ref": "main; cd /opt/modelgate && python -m runtime_builder.aws_proof; #"}),
         ("GET", "/proof", None),
     ]
 

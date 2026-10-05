@@ -1,5 +1,9 @@
 # Stage 1~5 참가자 PoC: 공개 ModelGate 경로
 
+이 문서는 기존 **runtime socket 프로필**의 재현 절차다. 현재 개인 EKS의
+runtime-builder IAM/S3 프로필에서는 Stage 4~5에
+[`PARTICIPANT_IAM_POC.md`](PARTICIPANT_IAM_POC.md)를 사용한다.
+
 이 문서는 개인 EKS에서 검증한 **빠른 재현용 힌트 포함** 절차다. 운영자는 시작 전에
 랩을 baseline으로 reset하고 참가자 IP가 허용 목록에 있는지 확인한다. 참가자 명령은
 공개 ModelGate HTTP endpoint와 제한된 Git gateway만 사용하며 AWS profile, `kubectl`,

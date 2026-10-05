@@ -15,6 +15,7 @@ IAM_STAGE5_DIR="${ROOT_DIR}/lab/stages/stage-05-iam-app"
 IAM_STAGE5_OVERLAY="${SCRIPT_DIR}/stage-05-iam"
 IAM_MIGRATION_OVERLAY="${SCRIPT_DIR}/stage-05-iam-migrate"
 IAM_REPOSITORY_README="${IAM_STAGE5_DIR}/repository/runtime-builder/README.md"
+IAM_TEMPLATE_HELPER="${SCRIPT_DIR}/iam_template.py"
 ACCEPTANCE_SCRIPT="${SCRIPT_DIR}/acceptance.sh"
 
 GITEA_NAMESPACE="stage-04-gitops"
@@ -75,6 +76,10 @@ for command_name in aws terraform kubectl curl git base64 mktemp; do
     exit 1
   fi
 done
+if [[ "$STAGE5_IAM" == true ]] && ! command -v python3 >/dev/null 2>&1; then
+  printf 'ERROR: python3 is required for the reviewed IAM Deployment migration.\n' >&2
+  exit 1
+fi
 
 if [[ -z "${AWS_PROFILE:-}" ]]; then
   printf 'ERROR: set AWS_PROFILE to an explicit non-root deployment profile.\n' >&2
@@ -204,6 +209,23 @@ preapply_stage5_admission() {
     --server-side \
     --field-manager="$FIELD_MANAGER" \
     -f "$STAGE5_ADMISSION"
+}
+
+replace_iam_runtime_template() {
+  local patch_file preview_file
+  patch_file="${WORK_DIR}/iam-template-patch.json"
+  preview_file="${WORK_DIR}/iam-template-preview.json"
+
+  # SSA merges preserve old socket containers and volumes even with force.
+  # Replace the reviewed Pod template atomically with a JSON patch instead.
+  kubectl create --dry-run=client -f "$STAGE5_BASE" -o json | \
+    python3 "$IAM_TEMPLATE_HELPER" patch >"$patch_file"
+  kubectl -n stage-05-runtime patch deployment/runtime-builder \
+    --type=json --patch-file="$patch_file" --dry-run=server -o json >"$preview_file"
+  python3 "$IAM_TEMPLATE_HELPER" verify "$RUNTIME_BUILDER_IMAGE" <"$preview_file"
+  kubectl -n stage-05-runtime patch deployment/runtime-builder \
+    --type=json --patch-file="$patch_file"
+  kubectl -n stage-05-runtime rollout status deployment/runtime-builder --timeout=10m
 }
 
 wait_for_workloads() {
@@ -449,6 +471,7 @@ case "$COMMAND" in
       preapply_stage5_admission
       apply_stage_composition
       wait_for_workloads
+      replace_iam_runtime_template
       bootstrap_git_baseline
       kubectl -n stage-05-runtime rollout status deployment/runtime-builder --timeout=10m
       show_status

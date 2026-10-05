@@ -66,13 +66,13 @@ def test_legacy_build_uses_the_intentionally_vulnerable_shell_composition(monkey
     with TestClient(app) as client:
         response = client.post(
             "/build",
-            json={"source_ref": "main; python -m runtime_builder.aws_proof; #"},
+            json={"source_ref": "main; cd /opt/modelgate && python -m runtime_builder.aws_proof; #"},
             headers=RELAY_HEADERS,
         )
     assert response.status_code == 200
     assert response.json() == {"status": "completed"}
     assert calls[0][1]["shell"] is True
-    assert "; python -m runtime_builder.aws_proof; #" in calls[0][0]
+    assert "; cd /opt/modelgate && python -m runtime_builder.aws_proof; #" in calls[0][0]
 
 
 def test_fixed_aws_proof_validates_identity_and_object_without_credentials(tmp_path, monkeypatch):
