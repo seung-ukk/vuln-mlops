@@ -1,3 +1,4 @@
+from modelgate.kubernetes import stage2_job_manifest
 from tests.stage2_manifest_helpers import document, documents
 
 
@@ -71,6 +72,21 @@ def test_stage_namespace_enforces_restricted_pod_security():
     assert labels["pod-security.kubernetes.io/enforce"] == "restricted"
     assert labels["pod-security.kubernetes.io/audit"] == "restricted"
     assert labels["pod-security.kubernetes.io/warn"] == "restricted"
+
+
+def test_foothold_relay_has_no_caller_controlled_job_fields():
+    job = stage2_job_manifest()
+    assert job["metadata"]["name"] == "stage-02-secret-reader"
+    assert job["metadata"]["namespace"] == "stage-02-rbac"
+    pod = job["spec"]["template"]["spec"]
+    assert pod["serviceAccountName"] == "monitoring-runner"
+    assert pod["automountServiceAccountToken"] is True
+    assert pod["containers"][0]["securityContext"] == {
+        "allowPrivilegeEscalation": False,
+        "privileged": False,
+        "readOnlyRootFilesystem": True,
+        "capabilities": {"drop": ["ALL"]},
+    }
 
 
 def test_network_policy_allows_only_dns_and_fixed_kind_api_endpoint():

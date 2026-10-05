@@ -15,6 +15,12 @@ spec:
       tolerations:
         - {key: lab.vuln-mlops/escape, operator: Equal, value: "true", effect: NoSchedule}
       securityContext: {runAsUser: 0, runAsGroup: 0, seccompProfile: {type: RuntimeDefault}}
+      initContainers:
+        - name: install-crictl
+          image: ghcr.io/seung-ukk/vuln-mlops-runtime-client@sha256:556d3f1837edfcd0da44627a39dbe890822217c66b1beec2d31f5ff6c48a930b
+          command: [cp, /usr/local/bin/crictl, /tools/crictl]
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+          volumeMounts: [{name: tools, mountPath: /tools}]
       containers:
         - name: runtime-builder
           image: ghcr.io/seung-ukk/vuln-mlops-runtime-client@sha256:556d3f1837edfcd0da44627a39dbe890822217c66b1beec2d31f5ff6c48a930b
@@ -26,10 +32,36 @@ spec:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
             capabilities: {drop: [ALL]}
+        - name: runtime-relay
+          image: ghcr.io/seung-ukk/vuln-mlops@sha256:9953d23e8102114873c3a52eaecd0a2e80d260cb0b7ee09ae348c0af3d66a244
+          command: [python, /relay/runtime-relay.py]
+          ports: [{name: relay, containerPort: 8080}]
+          env:
+            - {name: RELAY_ENABLED, value: "false"}
+            - name: POD_NAME
+              valueFrom: {fieldRef: {fieldPath: metadata.name}}
+            - name: POD_UID
+              valueFrom: {fieldRef: {fieldPath: metadata.uid}}
+            - name: PROOF_IMAGE
+              value: ghcr.io/seung-ukk/vuln-mlops-runtime-client@sha256:556d3f1837edfcd0da44627a39dbe890822217c66b1beec2d31f5ff6c48a930b
+          readinessProbe: {httpGet: {path: /healthz, port: relay}, initialDelaySeconds: 2, periodSeconds: 5}
+          livenessProbe: {httpGet: {path: /healthz, port: relay}, initialDelaySeconds: 10, periodSeconds: 10}
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits: {cpu: 200m, memory: 128Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
           volumeMounts:
             - {name: runtime-socket, mountPath: /run/stage5/containerd.sock}
             - {name: tmp, mountPath: /tmp}
+            - {name: tools, mountPath: /tools, readOnly: true}
+            - {name: relay-code, mountPath: /relay, readOnly: true}
       volumes:
         - name: runtime-socket
           hostPath: {path: /run/containerd/containerd.sock, type: Socket}
         - {name: tmp, emptyDir: {}}
+        - {name: tools, emptyDir: {}}
+        - name: relay-code
+          configMap: {name: runtime-relay, defaultMode: 0444}

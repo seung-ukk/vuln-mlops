@@ -55,12 +55,16 @@ Prometheus, Grafana, Argo CD, Kubernetes 및 AWS 구성요소는 검토 시점�
 
 Stage 1에 구현된 경로:
 
+- 공개 UI의 API 문서 링크와 OpenAPI에 노출된 bounded synthetic system-info를 통한
+  cluster-local canary 좌표 discovery
 - Webhook redirect를 통한 SSRF synthetic canary 확인
 - 외부 `POST /api/artifacts`를 통한 MLflow model ZIP 업로드
 - 경로 탈출, symbolic link, 중복 경로, 크기 및 파일 수 제한
 - 업로드 artifact를 MLflow Logged Model로 변환
 - 외부 API만 사용하는 statsmodels 역직렬화 RCE marker PoC
 - marker 존재 여부만 반환하고 파일 내용은 반환하지 않는 proof API
+- 관측된 marker UUID로만 열리며 SelfSubjectRulesReview, 고정 Stage 2 Job 생성/상태/로그만
+  중계하는 participant foothold API
 - GHCR 이미지 CI 게시 및 Kubernetes/Compose 설정
 
 Stage 1의 RCE는 non-root `uid=10001`에서 발생한다. privileged mode, hostPath,
@@ -83,6 +87,10 @@ payload를 실행한다. 이 단계가 Pod 내부 실행 문맥과 ServiceAccoun
 
 `modelgate` ServiceAccount의 effective permission을 열거한 뒤, 직접 읽을 수 없는
 Stage 2 Secret을 지정된 `monitoring-runner` identity를 사용하는 Job을 통해 읽는다.
+참가자는 operator kubeconfig나 ServiceAccount token을 받지 않고, Stage 1 proof UUID에
+결합된 고정 foothold API로만 이 제한된 권한 조합을 사용한다.
+Job 완료 후 같은 proof 세션은 `monitoring-runner` ServiceAccount와 Stage 3 client label을
+사용하는 restricted monitoring relay에만 이어진다.
 Admission control로 임의 ServiceAccount, 임의 namespace, privileged/hostPath Pod 및
 RBAC 객체 생성을 거부한다.
 
@@ -91,18 +99,27 @@ RBAC 객체 생성을 거부한다.
 최신 Prometheus/Grafana의 Kubernetes discovery 및 datasource 신뢰관계를 이용해
 일반 workload에서 볼 수 없는 topology, internal endpoint 및 제한된 Git credential을
 찾는다. Monitoring identity 자체에는 Node 또는 AWS 권한을 주지 않는다.
+참가자는 operator `kubectl exec` 대신 proof-bound API를 통해 datasource 목록, 고정
+`gitops_debug_info` query, 발견한 정확한 credential reference 교환만 수행한다.
 
 ### Stage 4: Argo CD / GitOps Privilege Escalation
 
 최신 Argo CD에서 과도한 repository write 범위, AppProject destination/resource 범위,
 자동 동기화가 결합된 운영상 오류를 사용한다. 공격자는 새 privileged Pod를 만들지
 못하고 기존 `runtime-builder` workload의 허용된 필드만 변경할 수 있어야 한다.
+Stage 3에서 발견한 synthetic credential은 ModelGate의 기존 참가자 endpoint 아래 고정
+Git smart-HTTP gateway에서만 사용한다. gateway는 단일 repository와 upload/receive-pack
+경로만 중계하며 Gitea UI, 관리 API, 임의 repository는 공개하지 않는다. Argo 결과도
+proof-bound 고정 status API로 확인하므로 참가자에게 `kubectl` 권한을 요구하지 않는다.
 
 ### Stage 5: Container Runtime Socket -> Worker Node
 
 전용 escape node group에 배치된 기존 `runtime-builder` Pod에서 containerd runtime
 socket을 발견하고 동일 Node의 runtime resource와 host에 영향을 준다. Runtime socket은
 다른 node group과 workload에는 노출하지 않는다.
+참가자는 operator `kubectl exec` 대신 Stage 4 proof가 관측된 동일 proof 세션에서 body가
+없는 고정 runtime endpoint를 호출한다. ModelGate는 내부 `runtime-relay`의 단일 합성 proof
+작업만 호출하며 command, path, image, Pod 또는 CRI config를 입력받지 않는다.
 
 ### Stage 6: CSI / AWS Storage / IAM Pivot
 

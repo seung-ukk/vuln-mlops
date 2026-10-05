@@ -1,13 +1,13 @@
 # Project Status
 
-마지막 갱신: 2026-10-04 (Asia/Seoul)
+마지막 갱신: 2026-10-05 (Asia/Seoul)
 
 이 문서는 새 Codex 작업과 팀원이 현재 상태를 빠르게 파악하기 위한 인계 문서다.
 작업을 시작할 때 `LAB_PLAN.md`, `STAGE_CONTRACTS.md`, 이 문서를 순서대로 읽는다.
 
 ## 현재 기준점
 
-- Branch: `codex/stage1-5-orchestration`
+- Branch: `codex/modelgate-public-access`
 - Latest merged commit: `9d3cc07 Merge pull request #4 from seung-ukk/codex/eks-stage1-deploy`
 - Repository: `https://github.com/seung-ukk/vuln-mlops`
 - Container: `ghcr.io/seung-ukk/vuln-mlops`
@@ -29,6 +29,8 @@
 
 ### Stage 1 SSRF
 
+- 공개 UI에서 `/docs`를 안내하고 OpenAPI의 `GET /api/system/info`가 service, namespace,
+  port, path로 분리된 bounded synthetic canary 좌표만 제공하는 discovery 경로
 - MLflow webhook redirect SSRF 경로
 - Docker-internal synthetic canary
 - EKS `stage-01-canary` restricted namespace와 ClusterIP-only synthetic canary
@@ -48,6 +50,9 @@
 - 외부 API-only statsmodels deserialization marker PoC
 - UUID 기반 고정 proof API
 - proof API를 통한 임의 파일 내용 반출 차단
+- 관측된 proof UUID로만 접근 가능한 participant foothold relay
+- relay가 SelfSubjectRulesReview와 고정 Stage 2 Job 생성·상태·로그만 제공하며 Kubernetes
+  token, 임의 API path/URL, namespace, manifest, Pod 이름은 외부 입력으로 받지 않음
 
 ### Stage 2 RBAC Chaining
 
@@ -61,6 +66,10 @@
 - Stage 2 default-deny 및 DNS/Kubernetes API 전용 egress
 - namespace-scoped Metadata audit policy와 kind audit evidence 검증
 - PowerShell/Bash kind smoke test와 intended/shortcut 정적 계약 테스트
+- 외부 ModelGate API의 proof-bound relay를 통한 Stage 1 RCE → Stage 2 RBAC 연결
+- relay가 만드는 Job과 reviewed `attack-job.yaml`의 완전 일치 계약 테스트
+- 완료된 고정 Job은 TTL 자동 삭제 대신 orchestration reset에서 명시적으로 삭제되어
+  참가자가 Stage 2 이후 중단해도 Stage 3 세션 선행 증거가 유지됨
 
 ### Stage 3 Monitoring Stack Trust Abuse
 
@@ -70,6 +79,12 @@
 - metric에는 topology와 opaque credential reference만 노출
 - broker에서 repository/branch/path 제한 synthetic Git credential과 Flag 교환
 - default-deny 및 `monitoring-runner` client 전용 NetworkPolicy
+- `monitoring-runner` ServiceAccount와 Stage 3 client network identity를 사용하는
+  restricted `monitoring-session` relay; Kubernetes token은 mount하지 않음
+- 완료된 Stage 2 Job이 있는 proof 세션에만 datasource discovery, 고정 topology query,
+  정확한 credential reference exchange를 제공하는 participant API
+- credential 응답에 같은 proof 세션의 고정 Stage 4 Git gateway와 application status 경로 제공
+- ModelGate는 Stage 3 service에 직접 연결하지 못하며 `monitoring-session:8080`만 연결
 - Secret/workload/node/exec 권한 및 외부 Service/Ingress shortcut 거부 테스트
 
 ### Stage 4 Argo CD / GitOps Privilege Escalation
@@ -84,12 +99,28 @@
 - ValidatingAdmissionPolicy로 다른 workload, hostPath, privileged/host namespace 거부
 - default-deny NetworkPolicy와 namespace 한정 cluster destination
 - Git commit SHA, Argo revision, Kubernetes audit evidence 검증
+- ModelGate EIP/내부 Service를 그대로 사용하는 proof-bound Git smart-HTTP gateway 구현:
+  단일 repository의 `info/refs`, upload-pack, receive-pack만 허용하고 Gitea UI/API는 비공개
+- Stage 3 Basic credential을 내부 Gitea에서 실제 검증하며 request body 8 MiB 제한,
+  arbitrary service/repository/upstream과 cookie/redirect response header 중계 거부
+- 참가자는 operator `kubectl` 없이 고정 application status API에서 Argo revision,
+  `Synced/Healthy`, Stage 4 proof와 Stage 5 mode를 확인
+- ModelGate status RBAC은 Stage 4 Application 및 Stage 4/5 `runtime-builder` Deployment의
+  `resourceNames` 기반 `get`만 허용하고 list/watch/mutation은 금지
 
 ### Stage 5 Runtime Socket -> Escape Worker
 
 - `stage-05-runtime` namespace와 전용 escape worker label/taint 경계
 - `runtime-builder` 하나에만 containerd socket과 reviewed `crictl` client 노출
 - digest 고정 Debian workload, non-privileged security context, no SA token, default-deny network
+- digest 고정 runtime-client init container가 packaged `crictl`을 도구 `emptyDir`로 복사하고,
+  ConfigMap 기반 고정 runtime relay만 socket을 mount하도록 분리
+- ModelGate→runtime relay TCP 8080만 허용하는 양방향 NetworkPolicy와 ClusterIP Service
+- Stage 4 `Synced/Healthy`, proof annotation, runtime mode를 모두 검증한 뒤 body 없는 고정
+  Stage 5 endpoint만 relay하고 command/path/image/Pod/CRI config 입력을 받지 않음
+- baseline relay는 비활성화하고 ValidatingAdmissionPolicy가 reviewed Stage 4 proof/mode와
+  결합된 `RELAY_ENABLED=true` 전환만 허용하여 Stage 1 Pod의 조기 직접 호출을 차단
+- 임시 CRI container와 proof 파일을 요청 종료 전에 제거하고 고정 synthetic 응답만 반환
 - Argo CD mutation을 기존 `runtime-builder`의 update/patch로 제한
 - ValidatingAdmissionPolicy로 node, image, socket/client path, volume/container shape 고정
 - 기존 CRI sandbox에 다음 `runtime-builder` attempt를 주입하는 intended path
@@ -418,6 +449,27 @@
 - 실제 EKS Stage 1 사전 점검: cluster/add-on/node/taint 정상, client dry-run passed
 - ModelGate GHCR OCI index anonymous inspect와 digest 확인: passed
 - Stage 1 EKS digest/account-portability attack/shortcut 계약 테스트 18개: passed
+- Stage 1 OpenAPI discovery intended/shortcut와 실제 system-info API 대상 테스트 16개:
+  passed
+- system-info discovery 변경 후 WSL Python 3.11 전체 테스트 125개: passed
+- proof-bound Stage 1→2 relay API, fixed Job parity, unknown-proof/임의 body shortcut
+  대상 테스트 17개: passed
+- Stage 1→2 relay 변경 후 WSL Python 3.11 전체 테스트 130개와 acceptance Bash 문법 검사:
+  passed
+- Stage 2→3 participant relay API, Kustomize render, 네트워크/임의 reference shortcut 및
+  orchestration 대상 테스트 49개: passed
+- Stage 2→3 relay 변경 후 Stage 3/통합 EKS Kustomize render, WSL Python 3.11 전체 테스트
+  137개, compile 및 acceptance/orchestration Bash 문법 검사: passed
+- Stage 3→4 ModelGate Git gateway와 participant Argo status 변경 대상 API/manifest/
+  orchestration 테스트 50개: passed
+- Stage 3→4 변경 후 Windows Python 전체 테스트 145개와 compile: passed
+- Stage 4, Stage 5, 통합 EKS Kustomize render 및 acceptance/orchestration WSL Bash 문법:
+  passed
+- Stage 4→5 proof-bound runtime relay API/manifest/orchestration 대상 테스트 48개: passed
+- runtime relay 변경 후 Windows Python 전체 테스트 155개와 relay ConfigMap script compile:
+  passed
+- Stage 5/통합 EKS Kustomize render, acceptance/orchestration WSL Bash 문법 및 현재 EKS
+  API의 Stage 5 overlay server-side dry-run: passed
 - 실제 EKS Stage 1 rollout: passed (`3/3 Running`, general node, restart 0)
 - 실제 EKS Stage 1 `/healthz`: `{"status":"ok","version":"0.1.0"}`
 - 실제 EKS Stage 1 `/readyz`: `{"status":"ready"}`
@@ -538,6 +590,10 @@ synthetic lab 데이터만 전달하는 단기 실습 예외이며, 도메인 �
 - 현재 `poc/rce_marker.py`의 AWS smoke는 운영자 로컬 Python 3.11 격리 환경에서 실행한다.
   팀 계정 참가자 배포 전에는 digest-pinned PoC runner 이미지 또는 사전 생성된 안전한
   payload/curl 흐름을 제공해 참가자 로컬 Python 의존성과 `kubectl exec` 우회를 제거한다.
+- Stage 3→4는 ModelGate의 기존 EIP/Service에서 고정 Git smart-HTTP gateway와 read-only
+  Argo status API로 이어지며, Stage 4→5도 operator `kubectl exec` 없이 proof-bound runtime
+  relay의 단일 합성 CRI 작업으로 연결했다. 다음 AWS 검증은 변경 이미지를 게시한 뒤 현재
+  EKS에 overlay를 적용해 공개 EIP에서 Stage 1→5 participant flow를 다시 실행하는 것이다.
 - Stage 2~5 checkpoint는 PR #1, Terraform foundation과 runtime-client image는 PR #2,
   Stage 5 runtime-client digest pin은 PR #3, Stage 1~5 EKS composition은 PR #4로
   `main`에 병합되었고 CI가 통과했다. 현재 branch는 clean 재배포 orchestration 작업만

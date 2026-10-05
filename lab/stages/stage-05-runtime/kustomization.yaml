@@ -4,7 +4,9 @@ resources:
   - ../stage-04-gitops
   - namespace.yaml
   - runtime-builder-base.yaml
+  - runtime-relay.yaml
   - controller-rbac.yaml
+  - participant-status-rbac.yaml
   - admission-policy.yaml
   - network-policy.yaml
 patches:

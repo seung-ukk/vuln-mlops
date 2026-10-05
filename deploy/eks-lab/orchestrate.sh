@@ -143,6 +143,7 @@ wait_for_workloads() {
   done <<'EOF'
 modelgate-lab|deployment/modelgate
 stage-01-canary|deployment/lab-canary
+stage-02-rbac|deployment/monitoring-session
 stage-03-monitoring|deployment/prometheus
 stage-03-monitoring|deployment/grafana
 stage-03-monitoring|deployment/credential-broker

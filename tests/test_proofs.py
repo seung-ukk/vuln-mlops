@@ -25,6 +25,8 @@ def test_rce_proof_returns_only_fixed_evidence(tmp_path, monkeypatch):
         "success": True,
         "proof_id": str(proof_id),
         "evidence": "validator marker observed",
+        "foothold_session": str(proof_id),
+        "next": f"/api/lab/footholds/{proof_id}/self-rules",
     }
 
 

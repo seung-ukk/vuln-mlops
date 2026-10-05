@@ -126,9 +126,14 @@ def test_acceptance_runs_stage_1_through_5_in_order() -> None:
     assert 'poc/ssrf_canary.py' in text
     assert 'poc/rce_marker.py' in text
     assert 'job/stage-02-secret-reader' in text
-    assert 'pod/stage-03-client' in text
-    assert 'wait_for_argo_revision "$stage5_revision"' in text
-    assert 'crictl "${cri_args[@]}" create' in text
+    assert 'stage-03/datasources' in text
+    assert 'stage-03/query' in text
+    assert 'stage-03/exchange/${stage3_ref}' in text
+    assert 'wait_for_participant_argo_revision "$stage5_revision"' in text
+    assert '["git_gateway"]' in text
+    assert 'stage-04/application' in text
+    assert '["runtime_relay"]' in text
+    assert 'curl -fsS -X POST "${modelgate_url}${runtime_relay}"' in text
 
 
 def test_acceptance_restores_the_reviewed_git_baseline() -> None:
@@ -143,10 +148,11 @@ def test_acceptance_restores_the_reviewed_git_baseline() -> None:
     assert 'wait_for_argo_revision "$baseline_revision"' in text
 
 
-def test_acceptance_selects_the_current_ready_stage_5_pod() -> None:
+def test_acceptance_uses_participant_runtime_relay_instead_of_operator_exec() -> None:
     text = ACCEPTANCE.read_text(encoding="utf-8")
+    stage5 = text[text.index("[Stage 5]") : text.index("[Cleanup]")]
 
-    assert 'not pod["metadata"].get("deletionTimestamp")' in text
-    assert 'status.get("ready")' in text
-    assert 'pod["metadata"]["creationTimestamp"]' in text
-    assert 'pods[-1]["metadata"]["name"]' in text
+    assert "kubectl exec" not in stage5
+    assert "crictl" not in stage5
+    assert "stage-05/runtime/proof" in stage5
+    assert "body_status" in stage5

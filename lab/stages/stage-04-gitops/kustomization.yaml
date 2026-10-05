@@ -11,6 +11,7 @@ resources:
   - redis-secret.yaml
   - runtime-builder-base.yaml
   - argocd-config.yaml
+  - participant-status-rbac.yaml
   - admission-policy.yaml
   - network-policy.yaml
 patches:

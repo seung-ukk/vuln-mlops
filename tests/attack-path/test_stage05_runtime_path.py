@@ -21,7 +21,9 @@ def docs(name):
 def test_runtime_builder_is_pinned_to_escape_node_and_exact_socket():
     deployment = docs("runtime-builder-base.yaml")[0]
     pod = deployment["spec"]["template"]["spec"]
-    container = pod["containers"][0]
+    container = next(c for c in pod["containers"] if c["name"] == "runtime-builder")
+    relay = next(c for c in pod["containers"] if c["name"] == "runtime-relay")
+    relay_env = {item["name"]: item.get("value") for item in relay["env"]}
 
     assert deployment["metadata"]["namespace"] == "stage-05-runtime"
     assert pod["nodeSelector"] == {"lab.vuln-mlops/node-role": "escape"}
@@ -39,16 +41,27 @@ def test_runtime_builder_is_pinned_to_escape_node_and_exact_socket():
         "path": "/run/containerd/containerd.sock",
         "type": "Socket",
     }
-    mount = next(v for v in container["volumeMounts"] if v["name"] == "runtime-socket")
+    mount = next(v for v in relay["volumeMounts"] if v["name"] == "runtime-socket")
     assert mount["mountPath"] == "/run/stage5/containerd.sock"
-    assert {v["name"] for v in pod["volumes"]} == {"runtime-socket", "tmp"}
-    assert {v["name"] for v in container["volumeMounts"]} == {"runtime-socket", "tmp"}
+    assert {v["name"] for v in pod["volumes"]} == {
+        "runtime-socket", "tmp", "tools", "relay-code"
+    }
+    assert {v["name"] for v in relay["volumeMounts"]} == {
+        "runtime-socket", "tmp", "tools", "relay-code"
+    }
+    assert "volumeMounts" not in container
+    assert relay_env["RELAY_ENABLED"] == "false"
 
 
 def test_git_desired_state_retains_socket_boundary_and_stage_proofs():
     desired = docs("repository/runtime-builder/deployment.yaml")[0]
     template = desired["spec"]["template"]
-    container = template["spec"]["containers"][0]
+    container = next(
+        c for c in template["spec"]["containers"] if c["name"] == "runtime-builder"
+    )
+    relay = next(
+        c for c in template["spec"]["containers"] if c["name"] == "runtime-relay"
+    )
     env = {x["name"]: x["value"] for x in container["env"]}
 
     assert desired["metadata"]["namespace"] == "stage-05-runtime"
@@ -58,7 +71,30 @@ def test_git_desired_state_retains_socket_boundary_and_stage_proofs():
         "lab.vuln-mlops/stage-05-ready": "runtime-socket",
     }
     assert container["image"] == RUNTIME_IMAGE
+    assert next(e for e in relay["env"] if e["name"] == "RELAY_ENABLED")["value"] == "true"
     assert template["spec"]["volumes"] == docs("runtime-builder-base.yaml")[0]["spec"]["template"]["spec"]["volumes"]
+
+
+def test_runtime_relay_is_internal_fixed_and_proof_bound():
+    items = docs("runtime-relay.yaml")
+    config = next(item for item in items if item["kind"] == "ConfigMap")
+    service = next(item for item in items if item["kind"] == "Service")
+    script = config["data"]["runtime-relay.py"]
+    compile(script, "runtime-relay.py", "exec")
+
+    assert service["metadata"]["name"] == "runtime-relay"
+    assert service["spec"].get("type", "ClusterIP") == "ClusterIP"
+    assert service["spec"]["ports"] == [
+        {"name": "http", "port": 8080, "targetPort": "relay"}
+    ]
+    assert 'self.path != "/proof"' in script
+    assert 'os.environ.get("RELAY_ENABLED") != "true"' in script
+    assert 'self.headers.get("X-ModelGate-Relay")' in script
+    assert 'Content-Length", "0") != "0"' in script
+    assert '"create", sandboxes[0]' in script
+    assert '"rm", container_id' in script
+    assert "/var/lib/vuln-mlops" in script
+    assert "stage-05-proof" in script
 
 
 def test_argocd_chain_moves_only_runtime_builder_destination_to_stage5():

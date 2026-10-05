@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+from modelgate.discovery import build_system_info
 from poc.ssrf_canary import CANARY_TARGETS, selected_canary_target
 
 
@@ -34,6 +35,28 @@ def test_poc_has_no_raw_canary_url_override() -> None:
     assert "POC_CANARY_URL" not in source
     assert "169.254.169.254" not in source
     assert "kubernetes.default" not in source
+
+
+def test_system_info_exposes_only_bounded_synthetic_topology() -> None:
+    serialized = build_system_info("kubernetes-lab").model_dump_json().lower()
+    forbidden = [
+        "http://",
+        "https://",
+        "svc.cluster.local",
+        "clusterip",
+        "169.254.169.254",
+        "arn:aws:",
+        "access_key",
+        "secret_key",
+        "password",
+        "token",
+        "credential",
+    ]
+    for value in forbidden:
+        assert value not in serialized
+
+    local_probe = build_system_info("local-compose").legacy_webhook_probe
+    assert local_probe.namespace is None
 
 
 def test_canary_has_no_external_or_host_exposure() -> None:

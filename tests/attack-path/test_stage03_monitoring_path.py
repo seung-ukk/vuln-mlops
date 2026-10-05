@@ -40,3 +40,24 @@ def test_prometheus_discovery_rbac_is_namespaced_and_read_only():
 def test_attack_client_is_not_part_of_stage_install():
     kustomization = yaml.safe_load((STAGE / "kustomization.yaml").read_text(encoding="utf-8"))
     assert "attack-client.yaml" not in kustomization["resources"]
+
+
+def test_monitoring_runner_session_relays_only_the_intended_http_chain():
+    resources = docs("session.yaml")
+    config = next(x for x in resources if x["kind"] == "ConfigMap")
+    deployment = next(x for x in resources if x["kind"] == "Deployment")
+    service = next(x for x in resources if x["kind"] == "Service")
+    pod = deployment["spec"]["template"]["spec"]
+    nginx = config["data"]["default.conf"]
+
+    assert deployment["metadata"]["namespace"] == "stage-02-rbac"
+    assert pod["serviceAccountName"] == "monitoring-runner"
+    assert pod["automountServiceAccountToken"] is False
+    assert deployment["spec"]["template"]["metadata"]["labels"][
+        "lab.vuln-mlops/role"
+    ] == "stage-03-client"
+    assert service["spec"].get("type", "ClusterIP") == "ClusterIP"
+    assert "/api/datasources" in nginx
+    assert "query=gitops_debug_info" in nginx
+    assert "/exchange/stage3-lab-repo-writer" in nginx
+    assert "location / { return 404; }" in nginx

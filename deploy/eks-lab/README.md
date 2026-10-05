@@ -34,15 +34,17 @@ kind's API destinations with the single `172.20.0.1/32` Service IP on TCP 443. C
 control-plane ENI and public endpoint addresses are not committed, so the same
 manifests remain usable in the personal and team accounts.
 
-Stage 3 is also composed into this overlay, while its temporary `attack-client.yaml`
-acceptance harness remains excluded. The common monitoring policy permits only DNS
-and the internal Prometheus/credential-broker flows. A separate policy selects only
+Stage 3 is also composed into this overlay. Its persistent, restricted
+`monitoring-session` relay runs as `monitoring-runner` in `stage-02-rbac`; the temporary
+`attack-client.yaml` remains excluded. The common monitoring policy permits only DNS
+and the internal Grafana/credential-broker flows. A separate policy selects only
 the Prometheus Pod and grants Kubernetes discovery access to `172.20.0.1/32` on TCP
 443; Grafana and the credential broker neither receive that network path nor mount a
-ServiceAccount token. All Stage 3 Services remain cluster-internal. AWS acceptance
-used an operator-created temporary client Pod to exercise the datasource and broker
-chain and removed it afterward; a participant-facing handoff that does not require
-operator `exec` is still pending.
+ServiceAccount token. All Stage 3 Services remain cluster-internal. ModelGate can reach
+only the relay on TCP 8080, and the proof-bound participant API exposes only datasource
+discovery, the fixed topology query, and exact credential-reference exchange.
+The credential response points to a proof-bound Git smart-HTTP gateway on the same
+ModelGate endpoint; it does not expose an additional public Service.
 
 Stage 4 uses its own `stage-04/` EKS overlay because the vendored Argo CD CRDs require
 server-side apply. This keeps the existing Stage 1-3 field ownership untouched while
@@ -52,6 +54,10 @@ only the Argo CD application controller access to `172.20.0.1/32` on TCP 443. Re
 pinned to a reviewed OCI index digest and uses a synthetic pre-created password so its
 upstream API-dependent secret initializer and ServiceAccount token can be removed.
 Unused Argo CD entrypoints are scaled to zero, and Gitea remains ClusterIP-only.
+ModelGate can reach only the Gitea Pod on TCP 3000 and proxies only the fixed lab
+repository's smart-HTTP paths. Its read-only Kubernetes status Roles are restricted by
+`resourceNames: [runtime-builder]`; participants observe Argo sync through the ModelGate
+API rather than an operator kubeconfig.
 AWS acceptance verified the restricted Git push, Argo reconciliation, admission/RBAC
 denials, and audit evidence. Gitea data remains ephemeral and must be bootstrapped
 again after its Pod is recreated.
@@ -61,6 +67,10 @@ reapplies the same two EKS-only Stage 4 network restrictions. Tests require thos
 small network files to stay identical to the Stage 4 EKS overlay. It moves only
 `runtime-builder` into `stage-05-runtime`, fixes its destination and controller RBAC,
 and mounts only `/run/containerd/containerd.sock` on the tainted escape worker.
+The socket is mounted only in the fixed `runtime-relay` container. ModelGate can reach
+that relay on TCP 8080 through exact ingress/egress policies and exposes only a bodyless,
+proof-bound Stage 5 operation; participants do not receive `pods/exec` or an arbitrary
+CRI command surface.
 Terraform writes the fixed synthetic node proof during escape-node cloud-init; the
 proof is not a credential, does not enter a Kubernetes manifest, and is absent from
 general workers. Updating an existing foundation adds a launch-template version and
@@ -111,6 +121,7 @@ POC_PYTHON=/tmp/vuln-mlops-poc-venv/bin/python \
 
 `reset` compares the fixed `stage4-lab:runtime-builder/` baseline through the installed
 pre-receive hook and creates a normal forward commit only when the content differs. It
-removes the fixed Stage 2 Job and Stage 3 client Pod if they exist, and recreates the
+removes the fixed Stage 2 Job and any legacy temporary Stage 3 client Pod if they exist,
+and recreates the
 ModelGate and runtime-builder Pods to clear ephemeral proof state. It does not force-push,
 delete namespaces or Terraform resources, or broaden Stage 4/5 RBAC.

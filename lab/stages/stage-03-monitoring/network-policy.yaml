@@ -44,3 +44,27 @@ spec:
     - to:
         - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: stage-03-monitoring}}
       ports: [{protocol: TCP, port: 3000}, {protocol: TCP, port: 8080}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: monitoring-session-ingress, namespace: stage-02-rbac}
+spec:
+  podSelector: {matchLabels: {app: monitoring-session}}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: modelgate-lab}}
+          podSelector: {matchLabels: {app.kubernetes.io/name: modelgate}}
+      ports: [{protocol: TCP, port: 8080}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: modelgate-monitoring-session-egress, namespace: modelgate-lab}
+spec:
+  podSelector: {matchLabels: {app.kubernetes.io/name: modelgate}}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: stage-02-rbac}}
+          podSelector: {matchLabels: {app: monitoring-session}}
+      ports: [{protocol: TCP, port: 8080}]
