@@ -80,10 +80,11 @@ def test_stage1_eks_image_cannot_float_to_a_tag() -> None:
 
 def test_eks_overlay_contains_no_personal_account_or_cluster_binding() -> None:
     overlay_dir = ROOT / "deploy" / "eks-lab"
+    text_suffixes = {".yaml", ".yml", ".sh", ".py", ".md", ".in", ".json", ".txt"}
     text = "\n".join(
         path.read_text(encoding="utf-8")
         for path in sorted(overlay_dir.rglob("*"))
-        if path.is_file()
+        if path.is_file() and path.suffix in text_suffixes
     )
     forbidden = [
         "707605822656",

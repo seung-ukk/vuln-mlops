@@ -58,6 +58,10 @@
   ModelGate와 runtime-builder Pod가 재시작/rollout되어 임시 세션과 `/tmp` proof가
   초기화됐다. 이 reset은 실제 EKS에서 통과했지만 수정된 IAM deploy migration
   경로의 두 번째 실행은 아직 검증하지 않았다.
+- PR #9 첫 CI는 188개 테스트가 통과하고 shortcut 테스트 한 개에서
+  `UnicodeDecodeError`가 발생했다. 새 `iam_template.py` import로 생성된
+  `deploy/eks-lab/__pycache__/*.pyc`를 기존 테스트가 모든 파일을 UTF-8로 읽으며
+  포함한 것이 원인이다. shortcut 검사는 배포 텍스트 파일 확장자만 읽도록 수정했다.
 
 ### Runtime-builder IRSA/S3 초기 준비 기록
 
