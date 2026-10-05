@@ -1,19 +1,89 @@
 # Project Status
 
-마지막 갱신: 2026-10-05 (Asia/Seoul)
+마지막 갱신: 2026-10-06 (Asia/Seoul)
 
 이 문서는 새 Codex 작업과 팀원이 현재 상태를 빠르게 파악하기 위한 인계 문서다.
 작업을 시작할 때 `LAB_PLAN.md`, `STAGE_CONTRACTS.md`, 이 문서를 순서대로 읽는다.
 
 ## 현재 기준점
 
-- Branch: `codex/modelgate-image-refresh`
-- Latest merged commit: `cde5312964a27ba1ffcf3080fb98b84eb24d48c4` (PR #6)
+- Branch: `codex/eks-stage5-admission-order`
+- Latest merged commit: `de88910` (PR #7)
 - Repository: `https://github.com/seung-ukk/vuln-mlops`
 - Container: `ghcr.io/seung-ukk/vuln-mlops`
-- 현재 작업 트리: PR #6의 proof-bound 참가자 경로가 `main`에 병합되었다. 개인 계정
-  EKS는 아직 이전 ModelGate digest를 실행한다. 이번 마일스톤은 새 OCI index pin을
-  계약과 함께 갱신한 뒤 공개 EIP에서 Stage 1~5 참가자 경로를 검증하는 것이다.
+- 현재 작업 트리: PR #7 이미지 pin이 개인 EKS에 적용되었다. 공개 EIP의 Stage 1~5
+  자동 수락 검증과 힌트 포함 수동 참가자 PoC가 통과했다. 이 과정에서 발견한 배포·
+  네트워크 수정은 현재 branch에 미커밋 상태다. 사용자가 범위를 확장해 기존 socket
+  Stage 5를 runtime-builder 앱의 IRSA→실습용 S3 경로로 교체하는 방향을 선택했다.
+
+### Runtime-builder IRSA/S3 1차 준비 (AWS 미적용)
+
+- Terraform의 EKS IRSA OIDC provider를 활성화하고, 실습 전용 private S3 버킷 하나,
+  `stage-05-runtime/runtime-builder-iam` ServiceAccount만 신뢰하는 IAM role, 정확히
+  `proof/final-flag.txt` 한 객체의 `s3:GetObject`만 추가했다. Flag 본문은 Terraform
+  state에 저장하지 않는다.
+- 기존 socket 기반 runtime-builder Pod에 역할을 곧바로 붙이지 않았다. 먼저 별도의
+  일회성 진단 Job으로 동일 ServiceAccount의 STS identity, 합성 객체 읽기, 버킷 전체
+  접근 거부를 확인하도록 manifest와 운영자 절차를 작성했다. 현재 Stage 1~5 클러스터
+  배포는 이 변경으로 수정되지 않았다.
+- IRSA/S3 대상 및 기존 Terraform 경계 테스트 33개, `terraform fmt -check`,
+  `terraform validate`, `git diff --check`가 통과했다. 사용자 Terraform plan은
+  `6 add, 1 change, 0 destroy`였고, 유일한 제자리 변경은 CoreDNS
+  `v1.14.6-eksbuild.4` → `v1.14.7-eksbuild.10`이었다. 저장된 계획을 실제 적용해
+  OIDC provider, 전용 IAM role/policy, 비공개 S3 bucket과 암호화/공개 차단을 생성했다.
+  사용자가 `proof/final-flag.txt`에 합성 placeholder를 업로드했고 `head-object`에서
+  30바이트/AES256을 확인했다. 첫 IRSA 진단 Job은 AWS 호출 전에 `exec format error`로
+  실패했다. 원인은 공식 AWS CLI 이미지의 `linux/arm64` manifest digest를 x86_64
+  general worker에 고정한 것이며, `linux/amd64` digest와 node architecture selector로
+  수정했다. 사용자가 Job을 재실행해 `arn:aws:sts::707605822656:assumed-role/
+  vuln-mlops-personal-lab-runtime-builder/...`, `FLAG{stage_5_iam_placeholder}`,
+  `bucket-wide access denied`를 확인했다. 이 결과는 IRSA→고정 S3 객체 경계의 실제
+  AWS 성공 증거다. 다음은 참가자 경로의 runtime-builder 앱·명령 주입 구현이다.
+- 작은 FastAPI `runtime_builder` 앱의 첫 코드와 대상 테스트를 추가했다. baseline은
+  build 요청을 거부하고 legacy profile은 의도적으로 shell에 source reference를
+  삽입한다. 응답은 명령 출력 없이 상태만 반환한다. 별도 maintenance module은 STS
+  account/assumed-role ARN과 정확한 합성 S3 객체만 읽어 형식을 검증한다. 앱 코드
+  5개 대상 테스트와 compile이 통과했다. Docker 이미지에 boto3와 앱 코드를 포함할
+  준비를 했지만 새 OCI digest 게시·manifest pin·Argo/ModelGate 참가자 경로 연결은
+  아직 하지 않았으며 현재 EKS 워크로드는 기존 socket 경로로 작동한다.
+- ModelGate에 proof-bound `stage-05/build/info`, `stage-05/build`, `stage-05/aws-proof`
+  참가자 gateway를 추가했다. Stage 2 완료, Argo `Synced/Healthy`, Stage 4 proof,
+  `iam-build` mode가 모두 확인되어야 내부 앱에 중계하며, 응답은 정해진 상태/계정/역할/
+  합성 Flag 형태만 허용한다. 기존 socket relay 경로는 현재 클러스터용으로 유지했다.
+  신규 앱/gateway와 기존 Git/runtime API 대상 테스트 24개가 통과했다. 새 앱 이미지
+  게시 및 Stage 5 Deployment 전환 전에는 이 신규 경로가 공개 EIP에서 열리지 않는다.
+- `lab/stages/stage-05-iam-app/`에 현재 overlay에 포함되지 않는 전환용 Deployment,
+  Service, NetworkPolicy, admission policy 초안을 추가했다. `__RUNTIME_BUILDER_IMAGE__`
+  placeholder는 새 OCI index digest가 게시되기 전에는 적용할 수 없다. 이 초안은
+  general worker의 단일 앱 컨테이너와 IRSA ServiceAccount를 사용하고 socket/hostPath를
+  제거한다. 변경된 앱/gateway 및 기존 API 계약 대상 테스트 27개가 통과했다.
+- 전환안 작성 후 전체 Python 테스트 178개, Python compile,
+  `terraform fmt -check`/`validate`, `git diff --check`가 통과했다. 새 앱은 아직
+  이미지 digest 게시·실제 EKS rollout·공개 EIP 참가자 검증 전이다.
+  참가자 단서로 전환용 Gitea `runtime-builder/README.md`를 작성하고, Stage 4
+  증거가 있을 때만 열리는 build info 응답에 `source_ref`와 legacy shell resolver
+  힌트를 추가했다. 현재 socket orchestrator는 README를 Gitea에 seed하지 않으므로
+  이 단서는 IAM 앱 전환 시 함께 게시해야 하며 현재 EKS 참가자에게는 보이지 않는다.
+  관련 앱/gateway 테스트 10개가 통과했다. Stage 4 전 build info 접근은 HTTP 409로
+  거부되며 README에는 Flag 원문이 없다.
+- 기존 socket 배포를 건드리지 않는 별도 IAM Kustomize overlay와 전환용 overlay를
+  추가했다. 전환용 overlay는 운영자 SSA가 기존 `runtime-builder` Deployment를
+  직접 덮어쓰지 않도록 제외하고, 새 Gitea baseline push 후 Argo가 기존 Deployment를
+  reconcile하게 한다. `orchestrate.sh deploy --skip-foundation --stage5-iam`은 새 OCI
+  digest 입력을 검사하고 Terraform role ARN·bucket·region을 manifest에 치환한다.
+  ModelGate도 같은 새 digest로 갱신하며 Gitea baseline에 참가자 README를 포함한다.
+  이후 `reset --stage5-iam`을 사용하고 socket 프로필 명령의 IAM Deployment 변경은
+  거부한다. 현재 이미지는 아직 CI에 게시되지 않았으므로 실제 EKS 전환은 미실행이다.
+  로컬 IAM overlay와 전환 overlay Kustomize 렌더, placeholder 치환/파싱,
+  배포·앱·gateway 대상 테스트 39개 및 Bash 문법 검사가 통과했다.
+- PR #8의 첫 CI에서 `ci/container`와 `ci/runtime-client`는 통과했으나 `ci/test`는
+  실패했다. CI 실패 로그의 직접 조회는 네트워크 timeout으로 완료하지 못했지만,
+  로컬 전체 테스트에서 IAM 역할 ARN의 계정 중립적 형식 검사 문자열까지 금지하던
+  기존 shortcut 테스트 실패를 재현했다. 실제 12자리 계정이 들어간
+  하드코딩 ARN만 금지하도록 검사를 좁혔고, 수정 후 전체 Python 테스트가 통과했다.
+  이 수정은 아직 PR branch에 push되지 않았으며 CI 재실행이 필요하다.
+- 이 진단 Job은 운영자 검증이며 참가자 경로 성공 증거가 아니다. 최종 목표는
+  Pod 명령 실행→IRSA→합성 S3 proof이고, 이 자체를 노드 장악으로 부르지 않는다.
 
 ### 현재 ModelGate 이미지 갱신
 
@@ -24,8 +94,67 @@
   ValidatingAdmissionPolicy를 이 digest로 동기화했다. runtime-client pin은 유지했다.
 - 관련 Stage 1/EKS·Stage 5 intended/shortcut 계약 테스트 26개, 전체 EKS Kustomize
   render, `git diff --check`가 통과했다.
-- 현재 EKS 적용 및 공개 EIP Stage 1~5 검증은 아직 수행하지 않았다. 이미지 pin 변경을
-  PR/CI로 보존한 뒤 적용한다.
+- 이미지 pin 변경은 PR #7/CI로 보존되었고 현재 개인 EKS에 적용되었다.
+- PR #7 병합과 세 CI check 성공 후 개인 EKS `deploy --skip-foundation`을 실행했다.
+  기존 클러스터의 Stage 5 admission policy가 이전 relay image digest를 고정해 둔 상태에서
+  orchestration이 새 Git baseline을 먼저 push하여 Argo가 새 Deployment를 거부했다.
+  Application revision `ff2c3dcb81084cbea1f190ba4ce93a26b4fc3177`은 `OutOfSync/Healthy`이고,
+  policy의 "runtime-builder image and container shape" 거부가 원인임을 확인했다.
+- 사용자가 같은 `vuln-mlops-stage4` field manager로 새 Stage 5 admission policy를 먼저
+  server-side apply했다. Stage 5 overlay server dry-run/실제 apply와 runtime-builder rollout이
+  성공했고, Argo 자동 동기화는 실패한 같은 revision을 재시도하지 않아 제한된 수동 sync로
+  `ff2c3dc`를 `Synced/Healthy`로 복구했다.
+- Stage 1~3 overlay apply 뒤 ModelGate와 canary rollout이 성공했다. ModelGate 세 컨테이너
+  모두 새 digest를 사용하고 공개 EIP `/readyz`는 `{"status":"ready"}`를 반환했다.
+- 재발 방지를 위해 deploy가 Git baseline 복원 전에 Stage 5 policy를 먼저 적용하도록
+  순서를 수정했다. 공개 EIP를 지정한 `accept`가 participant API와 Git gateway를
+  해당 주소로 호출하고 readiness를 기다리도록 확장했다. 관련 orchestration/shortcut
+  테스트와 Bash 문법 검사를 통과했으며 공개 EIP Stage 1~5 `accept` 실행은 대기 중이다.
+- 공개 EIP `accept`에서 Stage 1 SSRF/RCE, Stage 2 Job, Stage 3 datasource와 arbitrary
+  reference denial은 통과했다. Stage 4 Git clone은 ModelGate→Gitea TCP 3000 timeout으로
+  HTTP 502가 났다. Gitea Service/Endpoint는 정상이고 두 Pod는 같은 general node였다.
+- Stage 4 Kustomize의 최상위 `namespace: stage-04-gitops`가 ModelGate Git egress 정책을
+  잘못된 namespace로 옮긴 것이 원인이다. namespace transformer를 vendored Argo 리소스에만
+  적용해 ModelGate 정책은 `modelgate-lab`, Git client 정책은 `stage-02-rbac`에 남도록
+  수정했다. 사용자 EKS에서 올바른 ModelGate egress 정책 생성 후 내부 Gitea HTTP 200 확인.
+- Stage 5 overlay 재적용은 Argo가 소유한 relay downward-API `fieldRef` 두 필드에서만
+  SSA 충돌이 났다. Kubernetes 기본 `apiVersion: v1`을 base/desired manifest에 명시해
+  해당 Deployment의 server-side dry-run이 통과했다. `--force-conflicts`는 사용하지 않았다.
+- 관련 Stage 4/5와 orchestration intended/shortcut 테스트 50개, Stage 4/5 EKS
+  Kustomize render, Bash 문법 및 `git diff --check` 통과.
+- 수정된 `deploy --skip-foundation` 재실행이 성공했다. admission policy를 Git baseline
+  변경 전에 적용했고 Argo는 새 baseline `7042b46ebbc27dea925102ea123da1f4a9cbac91`에서
+  `Synced/Healthy`였다. Stage 1~5 workload rollout도 모두 통과했다.
+- 공개 EIP `accept` 재실행에서 Stage 1~3, Stage 4의 제한된 Git push 및 Argo reconciliation
+  `bc1b9c5`가 통과했다. Stage 5 proof 호출은 HTTP 502였고, 실패 후 Git baseline이
+  복원되었다. ModelGate에서 Stage 5 runtime relay `/healthz`도 ConnectTimeout이었다.
+- `modelgate-runtime-relay-egress` NetworkPolicy는 올바른 namespace에 있고 relay Pod는
+  escape 노드에서 `2/2 Running`이다. Terraform의 escape 노드 보안 그룹은 general
+  노드로부터 TCP 8080 ingress를 허용하지 않아 cross-node relay 연결이 차단된다.
+  general SG → escape SG TCP 8080 단일 규칙과 intended/shortcut 테스트를 추가했다.
+  관련 Terraform 테스트 28개, `terraform fmt -check`, `terraform validate`,
+  `git diff --check` 통과. 개인 EKS에서 Terraform plan `1 add, 0 change, 0 destroy`를
+  검토·적용했고 ModelGate → runtime relay `/healthz` HTTP 200을 확인했다.
+- 공개 EIP `accept` 재실행에서 Stage 1~5 intended path와 대표 shortcut denial이 모두
+  통과했다. Stage 4 제한 Git push `3241f056251d31fe9aa8a0e996ec50e452edfdd6`는
+  Argo `Synced/Healthy`로 이어졌고 Stage 5 synthetic node proof를 얻었다. Cleanup 후
+  baseline `eb62d47d397c715bca0144d94481dc0bd8c9db89`가 `Synced/Healthy`다.
+  이 acceptance는 공개 참가자 API/Git gateway 경로를 실행하면서도 운영자 `kubectl`로
+  초기화·우회 거부·복원을 수행하는 자동 검증이다. 독립 참가자의 단서 발견성은 별도
+  사용자 실습으로 확인해야 한다.
+- 사용자가 운영자 `kubectl` 없이 공개 EIP와 제한된 Git gateway로 Stage 1~5를 직접
+  실행했다. Stage 4 commit `d94c32c167f3a2fd5b10759cb25a198ba3af98f7`의
+  Argo `Synced/Healthy`와 Stage 5 `FLAG{stage_5_node_placeholder}` 응답을 확인했다.
+  이후 운영자 `reset`으로 Git baseline `7f8fcbff78d6d99d5c3283b6b4df2fd2ffff57df`를
+  복원했고 Argo `Synced/Healthy`, Stage 2 Job 삭제, ModelGate/runtime-builder 재시작과
+  전체 workload Ready를 확인했다. 멘토 보고용
+  `docs/MENTOR_PROGRESS_REPORT.md`와 힌트 포함 참가자 절차
+  `docs/PARTICIPANT_POC.md`를 작성했다. Stage 5는 임의 노드 명령 또는 AWS IAM
+  접근을 검증한 것이 아니며 Stage 6은 미구현이다.
+- Stage 5의 노드 marker 쓰기·노드 IAM identity 확인 확장을 검토하기 전에 현재
+  Stage 1~5 동작 기준을 `checkpoints/stage1-5-stable-2026-10-05/`에 로컬 source patch와
+  미추적 파일 사본, 복구 절차로 보존한다. 이 checkpoint는 Terraform state나 EKS
+  snapshot이 아니다. 실제 클러스터는 위 `reset` 이후 baseline 상태다.
 
 ## 완료된 작업
 

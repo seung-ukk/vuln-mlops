@@ -1,0 +1,26 @@
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata: {name: stage-05-runtime-builder-only}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - {apiGroups: [apps], apiVersions: [v1], operations: [UPDATE], resources: [deployments], scope: Namespaced}
+  matchConditions:
+    - {name: controller-only, expression: "request.namespace == 'stage-05-runtime' && request.userInfo.username == 'system:serviceaccount:stage-04-gitops:argocd-application-controller'"}
+  validations:
+    - {expression: "object.metadata.name == 'runtime-builder' && object.spec.replicas == 1", message: "Only the existing runtime-builder Deployment may be reconciled."}
+    - {expression: "object.spec.template.spec.serviceAccountName == 'runtime-builder-iam' && object.spec.template.spec.automountServiceAccountToken == false", message: "The runtime-builder IAM identity is fixed."}
+    - {expression: "object.spec.template.spec.nodeSelector == {'lab.vuln-mlops/node-role': 'general', 'kubernetes.io/arch': 'amd64'} && !has(object.spec.template.spec.tolerations)", message: "The app remains on a general worker."}
+    - {expression: "!has(object.spec.template.spec.hostNetwork) && !has(object.spec.template.spec.hostPID) && !has(object.spec.template.spec.hostIPC)", message: "Host namespaces are forbidden."}
+    - {expression: "!has(object.spec.template.spec.initContainers) && object.spec.template.spec.containers.size() == 1 && object.spec.template.spec.containers[0].name == 'runtime-builder' && object.spec.template.spec.containers[0].image == '__RUNTIME_BUILDER_IMAGE__' && object.spec.template.spec.containers[0].command == ['uvicorn', 'runtime_builder.main:app', '--host', '0.0.0.0', '--port', '8080']", message: "The app image and process are fixed."}
+    - {expression: "object.spec.template.spec.containers[0].env.size() == 7 && object.spec.template.spec.containers[0].env.exists_one(e, e.name == 'RUNTIME_PROOF_BUCKET' && e.valueFrom.configMapKeyRef.name == 'runtime-builder-aws' && e.valueFrom.configMapKeyRef.key == 'proof-bucket') && object.spec.template.spec.containers[0].env.exists_one(e, e.name == 'AWS_EC2_METADATA_DISABLED' && e.value == 'true') && object.spec.template.spec.containers[0].env.exists_one(e, e.name == 'AWS_DEFAULT_REGION' && e.value == '__AWS_REGION__') && object.spec.template.spec.containers[0].env.exists_one(e, e.name == 'HOME' && e.value == '/tmp')", message: "The AWS target and metadata boundary are fixed."}
+    - {expression: "object.spec.template.spec.containers[0].env.exists_one(e, e.name == 'STAGE4_MODE' && e.value in ['baseline', 'git-controlled']) && object.spec.template.spec.containers[0].env.exists_one(e, e.name == 'STAGE5_MODE' && e.value in ['iam-pending', 'iam-build']) && object.spec.template.spec.containers[0].env.exists_one(e, e.name == 'BUILDER_MODE' && e.value in ['baseline', 'legacy-build'])", message: "Only reviewed build modes are allowed."}
+    - {expression: "(object.spec.template.spec.containers[0].env.exists_one(e, e.name == 'STAGE4_MODE' && e.value == 'baseline') && object.spec.template.spec.containers[0].env.exists_one(e, e.name == 'STAGE5_MODE' && e.value == 'iam-pending') && object.spec.template.spec.containers[0].env.exists_one(e, e.name == 'BUILDER_MODE' && e.value == 'baseline')) || (object.spec.template.spec.containers[0].env.exists_one(e, e.name == 'STAGE4_MODE' && e.value == 'git-controlled') && object.spec.template.spec.containers[0].env.exists_one(e, e.name == 'STAGE5_MODE' && e.value == 'iam-build') && object.spec.template.spec.containers[0].env.exists_one(e, e.name == 'BUILDER_MODE' && e.value == 'legacy-build') && object.spec.template.metadata.annotations['lab.vuln-mlops/stage-04-proof'] == 'FLAG{stage_4_gitops_placeholder}')", message: "Legacy build mode requires the reviewed Stage 4 state."}
+    - {expression: "object.spec.template.spec.volumes.size() == 1 && object.spec.template.spec.volumes[0].name == 'tmp' && has(object.spec.template.spec.volumes[0].emptyDir) && object.spec.template.spec.containers[0].volumeMounts.size() == 1 && object.spec.template.spec.containers[0].volumeMounts[0].name == 'tmp' && object.spec.template.spec.containers[0].volumeMounts[0].mountPath == '/tmp'", message: "Only the scratch volume is allowed."}
+    - {expression: "object.spec.template.spec.containers[0].securityContext.allowPrivilegeEscalation == false && object.spec.template.spec.containers[0].securityContext.readOnlyRootFilesystem == true && object.spec.template.spec.containers[0].securityContext.capabilities.drop == ['ALL']", message: "Privilege escalation and writable root are forbidden."}
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata: {name: stage-05-runtime-builder-only}
+spec: {policyName: stage-05-runtime-builder-only, validationActions: [Deny, Audit]}

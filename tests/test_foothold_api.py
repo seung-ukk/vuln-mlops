@@ -194,6 +194,9 @@ def test_foothold_schema_has_no_arbitrary_proxy_or_request_body(tmp_path, monkey
         "/api/lab/footholds/{proof_id}/stage-04/git/vuln-mlops-gitops.git/git-receive-pack",
         "/api/lab/footholds/{proof_id}/stage-04/application",
         "/api/lab/footholds/{proof_id}/stage-05/runtime/proof",
+        "/api/lab/footholds/{proof_id}/stage-05/build/info",
+        "/api/lab/footholds/{proof_id}/stage-05/build",
+        "/api/lab/footholds/{proof_id}/stage-05/aws-proof",
     }
     create = paths["/api/lab/footholds/{proof_id}/stage-02/job"]["post"]
     assert "requestBody" not in create

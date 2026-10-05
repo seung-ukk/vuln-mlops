@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Secret
+metadata: {name: stage4-cluster, namespace: stage-04-gitops}
+stringData:
+  namespaces: stage-04-gitops,stage-05-runtime
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata: {name: runtime-builder, namespace: stage-04-gitops}
+spec:
+  destinations: [{server: "https://kubernetes.default.svc", namespace: stage-05-runtime}]
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata: {name: runtime-builder, namespace: stage-04-gitops}
+spec:
+  destination: {server: "https://kubernetes.default.svc", namespace: stage-05-runtime}

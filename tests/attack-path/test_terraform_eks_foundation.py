@@ -212,12 +212,25 @@ def test_control_plane_can_reach_both_node_boundaries() -> None:
     assert 'from_port                    = 443' in network
 
 
+def test_general_worker_can_reach_stage5_runtime_relay_port() -> None:
+    network = (TF / "network-security.tf").read_text(encoding="utf-8")
+    relay_rule = network.split(
+        'resource "aws_vpc_security_group_ingress_rule" "escape_runtime_relay_from_general" {',
+        1,
+    )[1].split("\n}", 1)[0]
+    assert "security_group_id            = aws_security_group.escape_nodes.id" in relay_rule
+    assert "referenced_security_group_id = aws_security_group.general_nodes.id" in relay_rule
+    assert 'ip_protocol                  = "tcp"' in relay_rule
+    assert "from_port                    = 8080" in relay_rule
+    assert "to_port                      = 8080" in relay_rule
+
+
 def test_cluster_uses_access_entry_and_managed_addons() -> None:
     text = terraform_text()
     assert 'authentication_mode' in text and '"API"' in text
     assert "enable_cluster_creator_admin_permissions" in text
     assert 'principal_arn = aws_iam_role.cluster_operator.arn' in text
-    assert "enable_irsa                              = false" in text
+    assert "enable_irsa                              = true" in text
     for addon in ["coredns", "eks-pod-identity-agent", "kube-proxy", "vpc-cni"]:
         assert addon in text
 

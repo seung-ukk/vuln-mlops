@@ -111,12 +111,27 @@ class Stage4ApplicationStatus(BaseModel):
     stage4_proof: str | None
     stage5_mode: str | None
     runtime_relay: str | None
+    builder_endpoint: str | None
 
 
 class Stage5RuntimeProof(BaseModel):
     proof: str
     success: bool
     evidence: str
+    flag: str
+
+
+class Stage5BuildRequest(BaseModel):
+    source_ref: str = Field(min_length=1, max_length=128)
+
+
+class Stage5BuildStatus(BaseModel):
+    status: str
+
+
+class Stage5IamProof(BaseModel):
+    account: str
+    role: str
     flag: str
 
 

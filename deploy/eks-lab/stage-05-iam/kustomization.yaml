@@ -1,0 +1,13 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../../lab/stages/stage-05-iam-app
+  - controller-api-egress.yaml
+patches:
+  - path: internal-egress-patch.yaml
+    target:
+      group: networking.k8s.io
+      version: v1
+      kind: NetworkPolicy
+      name: stage-04-internal
+      namespace: stage-04-gitops

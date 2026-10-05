@@ -254,6 +254,7 @@ def test_stage4_application_status_is_fixed_and_normalized(tmp_path, monkeypatch
         "runtime_relay": (
             f"/api/lab/footholds/{proof_id}/stage-05/runtime/proof"
         ),
+        "builder_endpoint": None,
     }
     assert kubernetes.calls[-2:] == [
         "/apis/argoproj.io/v1alpha1/namespaces/stage-04-gitops/"

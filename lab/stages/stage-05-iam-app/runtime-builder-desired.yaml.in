@@ -1,0 +1,44 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: runtime-builder
+  namespace: stage-05-runtime
+  labels: {lab.vuln-mlops/stage: "05"}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: runtime-builder}}
+  template:
+    metadata:
+      labels: {app: runtime-builder}
+      annotations:
+        lab.vuln-mlops/stage-04-proof: "FLAG{stage_4_gitops_placeholder}"
+    spec:
+      serviceAccountName: runtime-builder-iam
+      automountServiceAccountToken: false
+      nodeSelector: {lab.vuln-mlops/node-role: general, kubernetes.io/arch: amd64}
+      securityContext: {runAsUser: 0, runAsGroup: 0, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: runtime-builder
+          image: __RUNTIME_BUILDER_IMAGE__
+          command: [uvicorn, runtime_builder.main:app, --host, 0.0.0.0, --port, "8080"]
+          ports: [{name: http, containerPort: 8080}]
+          env:
+            - {name: STAGE4_MODE, value: git-controlled}
+            - {name: STAGE5_MODE, value: iam-build}
+            - {name: BUILDER_MODE, value: legacy-build}
+            - name: RUNTIME_PROOF_BUCKET
+              valueFrom: {configMapKeyRef: {name: runtime-builder-aws, key: proof-bucket}}
+            - {name: AWS_EC2_METADATA_DISABLED, value: "true"}
+            - {name: AWS_DEFAULT_REGION, value: __AWS_REGION__}
+            - {name: HOME, value: /tmp}
+          readinessProbe: {httpGet: {path: /healthz, port: http}, initialDelaySeconds: 2, periodSeconds: 5}
+          livenessProbe: {httpGet: {path: /healthz, port: http}, initialDelaySeconds: 10, periodSeconds: 10}
+          resources:
+            requests: {cpu: 20m, memory: 128Mi}
+            limits: {cpu: 300m, memory: 512Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          volumeMounts: [{name: tmp, mountPath: /tmp}]
+      volumes: [{name: tmp, emptyDir: {}}]

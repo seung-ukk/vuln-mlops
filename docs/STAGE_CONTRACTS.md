@@ -25,6 +25,24 @@
 | 5 Runtime | runtime workload | container -> runtime -> node | escape worker node | 구현됨 |
 | 6 CSI/IAM | node/CSI trust | Kubernetes -> AWS storage | Final Flag | 계획 |
 
+## 제안된 Stage 5 교체 계약: Runtime Builder → IRSA → S3
+
+이 계약은 아직 현재 EKS에 적용되지 않은 전환안이다. 운영 중인 socket Stage 5
+계약은 새 이미지와 공개 참가자 경로가 검증될 때까지 아래 기존 항목대로 유지한다.
+
+- Input: Stage 3의 제한된 Git credential과 Stage 4의 Argo `Synced/Healthy` 증거.
+- Intended: Git의 `runtime-builder/` 경로에서 기존 앱의 legacy build profile을
+  활성화한다. 참가자는 ModelGate의 proof-bound 고정 gateway를 통해 빌드 요청을
+  제출하고, 앱의 source reference가 shell command에 조합되는 결함을 이용한다.
+- Output: `stage-05-runtime/runtime-builder-iam` ServiceAccount에 연결된 IRSA 역할.
+  이 역할은 실습 S3 버킷의 `proof/final-flag.txt` 한 객체에만 `s3:GetObject`를 갖는다.
+- Success: 예상 계정, `assumed-role/...runtime-builder/...` ARN, 공개되지 않은 합성
+  Flag의 조회. 실제 credential, 임의 파일 또는 shell stdout은 참가자 API로 반환하지 않는다.
+- Denial: Stage 4 이전 빌드 경로, 다른 namespace/ServiceAccount의 역할 사용,
+  버킷 전체·다른 객체 조회, hostPath/socket/privileged Deployment 변경을 거부한다.
+- Interpretation: 이 경로는 Pod 애플리케이션 문맥의 AWS 접근을 증명하며 노드 장악이나
+  CSI 공격을 증명하지 않는다.
+
 ## Stage 1A: SSRF
 
 ### Input identity

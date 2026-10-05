@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import tempfile
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -48,7 +49,7 @@ from modelgate.kubernetes import (
     stage2_job_status,
 )
 from modelgate.proofs import rce_proof_observed
-from modelgate.runtime import build_runtime_client
+from modelgate.runtime import build_runtime_builder_client, build_runtime_client
 from modelgate.registry import (
     approve_model,
     get_registered_model,
@@ -65,6 +66,9 @@ from modelgate.schemas import (
     Stage3Topology,
     Stage4ApplicationStatus,
     Stage5RuntimeProof,
+    Stage5BuildRequest,
+    Stage5BuildStatus,
+    Stage5IamProof,
     SystemInfo,
     WebhookCreate,
     WebhookTest,
@@ -88,6 +92,7 @@ async def lifespan(app: FastAPI):
     app.state.monitoring_http = build_monitoring_client()
     app.state.git_gateway_http = build_git_gateway_client()
     app.state.runtime_http = build_runtime_client()
+    app.state.runtime_builder_http = build_runtime_builder_client()
     logger.info("ModelGate API started")
     try:
         yield
@@ -98,6 +103,7 @@ async def lifespan(app: FastAPI):
         await app.state.monitoring_http.aclose()
         await app.state.git_gateway_http.aclose()
         await app.state.runtime_http.aclose()
+        await app.state.runtime_builder_http.aclose()
 
 
 app = FastAPI(
@@ -572,6 +578,7 @@ async def _read_stage4_application(
     application_status = application.get("status", {})
     stage4_proof = annotations.get("lab.vuln-mlops/stage-04-proof")
     runtime_relay = None
+    builder_endpoint = None
     if (
         stage4_proof == "FLAG{stage_4_gitops_placeholder}"
         and stage5_mode == "runtime-socket"
@@ -579,6 +586,11 @@ async def _read_stage4_application(
         runtime_relay = (
             f"/api/lab/footholds/{proof_id}/stage-05/runtime/proof"
         )
+    if (
+        stage4_proof == "FLAG{stage_4_gitops_placeholder}"
+        and stage5_mode == "iam-build"
+    ):
+        builder_endpoint = f"/api/lab/footholds/{proof_id}/stage-05/build/info"
     return {
         "name": "runtime-builder",
         "namespace": deployment_namespace,
@@ -588,6 +600,7 @@ async def _read_stage4_application(
         "stage4_proof": stage4_proof,
         "stage5_mode": stage5_mode,
         "runtime_relay": runtime_relay,
+        "builder_endpoint": builder_endpoint,
     }
 
 
@@ -643,6 +656,105 @@ async def foothold_stage5_runtime_proof(
     if payload != expected:
         raise HTTPException(status_code=502, detail="Runtime proof response is invalid")
     return expected
+
+
+async def _require_iam_build_mode(request: Request, proof_id: UUID) -> None:
+    application = await _read_stage4_application(request, proof_id)
+    if (
+        application["sync"] != "Synced"
+        or application["health"] != "Healthy"
+        or application["stage4_proof"] != "FLAG{stage_4_gitops_placeholder}"
+        or application["stage5_mode"] != "iam-build"
+        or application["namespace"] != "stage-05-runtime"
+    ):
+        raise HTTPException(status_code=409, detail="IAM build path is not ready")
+
+
+@app.get(
+    "/api/lab/footholds/{proof_id}/stage-05/build/info",
+    summary="Discover the fixed runtime-builder build profile",
+    tags=["lab foothold"],
+)
+async def foothold_stage5_build_info(request: Request, proof_id: UUID) -> dict[str, str]:
+    await _require_iam_build_mode(request, proof_id)
+    try:
+        response = await request.app.state.runtime_builder_http.get("/build/info")
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail="Runtime builder is unavailable") from exc
+    if response.is_error:
+        raise HTTPException(status_code=502, detail="Runtime builder info failed")
+    payload = response.json()
+    if (
+        not isinstance(payload, dict)
+        or payload.get("service") != "runtime-builder"
+        or payload.get("mode") != "legacy-build"
+    ):
+        raise HTTPException(status_code=502, detail="Runtime builder profile is invalid")
+    return {
+        "service": "runtime-builder",
+        "mode": "legacy-build",
+        "input_field": "source_ref",
+        "resolver": "legacy shell-based source lookup",
+        "next": f"/api/lab/footholds/{proof_id}/stage-05/build",
+    }
+
+
+@app.post(
+    "/api/lab/footholds/{proof_id}/stage-05/build",
+    response_model=Stage5BuildStatus,
+    summary="Submit a source reference to the Git-controlled runtime builder",
+    tags=["lab foothold"],
+)
+async def foothold_stage5_build(
+    request: Request, proof_id: UUID, body: Stage5BuildRequest
+) -> dict[str, str]:
+    await _require_iam_build_mode(request, proof_id)
+    try:
+        response = await request.app.state.runtime_builder_http.post(
+            "/build", json={"source_ref": body.source_ref}
+        )
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail="Runtime builder is unavailable") from exc
+    if response.is_error:
+        raise HTTPException(status_code=502, detail="Runtime builder request failed")
+    payload = response.json()
+    if payload not in ({"status": "completed"}, {"status": "failed"}):
+        raise HTTPException(status_code=502, detail="Runtime builder response is invalid")
+    return payload
+
+
+@app.get(
+    "/api/lab/footholds/{proof_id}/stage-05/aws-proof",
+    response_model=Stage5IamProof,
+    summary="Read only the validated synthetic AWS proof",
+    tags=["lab foothold"],
+)
+async def foothold_stage5_aws_proof(request: Request, proof_id: UUID) -> dict[str, str]:
+    await _require_iam_build_mode(request, proof_id)
+    try:
+        response = await request.app.state.runtime_builder_http.get("/proof")
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail="Runtime builder is unavailable") from exc
+    if response.status_code == 404:
+        raise HTTPException(status_code=404, detail="IAM proof has not been observed")
+    if response.is_error:
+        raise HTTPException(status_code=502, detail="Runtime builder proof failed")
+    payload = response.json()
+    if (
+        not isinstance(payload, dict)
+        or set(payload) != {"account", "role", "flag"}
+        or not isinstance(payload["account"], str)
+        or not isinstance(payload["role"], str)
+        or not isinstance(payload["flag"], str)
+        or re.fullmatch(r"[0-9]{12}", payload["account"]) is None
+        or re.fullmatch(
+            rf"arn:aws:sts::{payload['account']}:assumed-role/[^/]*runtime-builder/[^/]+",
+            payload["role"],
+        ) is None
+        or re.fullmatch(r"FLAG\{stage_5_iam_[a-z0-9_]+\}", payload["flag"]) is None
+    ):
+        raise HTTPException(status_code=502, detail="IAM proof response is invalid")
+    return payload
 
 
 @app.post("/api/artifacts", status_code=status.HTTP_201_CREATED)

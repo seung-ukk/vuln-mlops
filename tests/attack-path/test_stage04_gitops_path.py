@@ -69,6 +69,7 @@ def test_modelgate_can_reach_only_gitea_and_read_fixed_reconciliation_status():
         item for item in policies
         if item["metadata"]["name"] == "modelgate-stage-04-git-egress"
     )
+    assert egress["metadata"]["namespace"] == "modelgate-lab"
     assert egress["spec"]["podSelector"] == {
         "matchLabels": {"app.kubernetes.io/name": "modelgate"}
     }

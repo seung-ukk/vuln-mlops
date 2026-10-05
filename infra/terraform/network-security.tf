@@ -118,6 +118,15 @@ resource "aws_vpc_security_group_ingress_rule" "general_node_tcp" {
   to_port                      = 65535
 }
 
+resource "aws_vpc_security_group_ingress_rule" "escape_runtime_relay_from_general" {
+  security_group_id            = aws_security_group.escape_nodes.id
+  referenced_security_group_id = aws_security_group.general_nodes.id
+  description                  = "ModelGate to fixed Stage 5 runtime relay"
+  ip_protocol                  = "tcp"
+  from_port                    = 8080
+  to_port                      = 8080
+}
+
 resource "aws_vpc_security_group_ingress_rule" "general_dns" {
   for_each = {
     general_tcp = { source = aws_security_group.general_nodes.id, protocol = "tcp" }
