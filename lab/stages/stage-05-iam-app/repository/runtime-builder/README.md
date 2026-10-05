@@ -21,3 +21,13 @@ role can read one synthetic proof object from the lab S3 bucket. The proof
 endpoint reports only a validated account, assumed-role ARN, and synthetic
 flag after the application has observed that proof. No AWS keys are stored in
 this repository.
+
+A separate `runtime-maintenance` agent runs on the dedicated escape worker.
+It has no IRSA role or Kubernetes token, but its fixed maintenance task uses
+the worker's containerd socket. Only the builder Pod can call the agent.
+The baseline builder profile disables that maintenance bridge; the legacy
+profile enables it after Argo CD reconciles this Git revision. The ModelGate
+application status response then shows a proof-bound runtime path. This is
+an independent exercise from the command injection / IAM proof: compare a
+normal Pod's access with the runtime operation's synthetic node proof. The
+public request accepts no command, image, path, target Pod, or request body.

@@ -7,14 +7,44 @@
 
 ## 현재 기준점
 
-- Branch: local `main` at `fd29a46` (PR #8); migration repair is uncommitted
-- Latest merged commit: `fd29a46` (PR #8)
+- Branch: local `main` at `9cd7f48` (PR #9)
+- Latest merged commit: `9cd7f48` (PR #9)
 - Repository: `https://github.com/seung-ukk/vuln-mlops`
 - Container: `ghcr.io/seung-ukk/vuln-mlops`
-- 현재 작업 트리: PR #8의 IAM runtime-builder 전환 코드가 main에 병합되었고,
-  개인 EKS의 기존 Stage 5 Deployment를 새 앱으로 전환했다. 공개 참가자 경로의
-  명령 주입→IRSA→S3 proof 검증은 아직 하지 않았다. 아래 초기 준비 기록의
+- 현재 상태: PR #9까지 main에 병합됐고 개인 EKS의 IAM runtime-builder 앱에서
+  공개 참가자 경로 Stage 1~5와 명령 주입→IRSA→S3 합성 proof가 통과했다.
+  reset과 수정된 IAM deploy 재실행도 통과했다. 아래 초기 준비 기록의
   "미적용" 문장은 당시 시점의 기록이며 현재 상태는 다음 항목이 우선한다.
+
+### 현재 작업: 독립 Stage 5-A / 5-B 병행 구성
+
+- 사용자가 두 최종 문제를 같은 EKS에서 독립적으로 제공하도록 범위를 확장했다.
+  현재 배포된 5-B는 general worker의 `runtime-builder` 명령 주입→IRSA→합성
+  S3 proof이며 유지한다. 새 5-A는 전용 escape worker의 독립
+  `runtime-maintenance` agent가 고정 containerd CRI proof 작업을 수행한다.
+  참가자에게 임의 CRI config/command/path나 노드 장악 권한을 제공하지 않는다.
+- 기존 runtime relay ConfigMap/Service/NetworkPolicy를 공용 Kustomize 구성으로
+  이동해 두 프로필이 같은 고정 코드를 사용한다. IAM overlay에서는 Service와
+  NetworkPolicy를 독립 agent만 선택하도록 patch하고, 별도 ServiceAccount는
+  IRSA annotation과 자동 토큰 mount가 없다. IAM builder는 general worker에서
+  socket 없이 남는다. 새 agent의 image/node/socket/container shape를 고정하는
+  admission policy를 추가했다.
+- Stage 4 상태 응답이 `iam-build`에서 runtime relay와 builder 경로를 모두
+  반환하도록 하고, runtime proof endpoint는 Stage 4 proof와 Argo
+  `Synced/Healthy`를 검사한다. 내부 agent는 ModelGate에서 직접 접근할 수 없고
+  Git으로 활성화된 builder만 고정 maintenance 요청을 전달한다. 이전 socket
+  프로필의 남은 ModelGate→relay NetworkPolicy도 IAM deploy에서 삭제한다.
+  Gitea README와 참가자 PoC에 두 경로를 설명했다.
+- 전체 로컬 Python 테스트 199개, Python compile, Bash 문법, `git diff --check`,
+  기존 socket 프로필과 새 IAM migration overlay의 Kustomize 렌더가 통과했다.
+  IAM 렌더는 ModelGate→agent 직접 NetworkPolicy가 없고 builder→agent만
+  선택되는 것을 확인했다.
+- 사용자가 현재 개인 EKS API에서 새 `stage-05-runtime-maintenance-fixed`
+  ValidatingAdmissionPolicy/Binding을 기존 검증 이미지 digest로 server-side dry-run했고
+  두 리소스 모두 통과했다. IAM migration overlay 전체도 같은 이미지로 EKS
+  server-side dry-run에 통과했다(`dryrun_exit=0`). 실제 정책 적용과 agent 배포는
+  아직 하지 않았다. 새 이미지 게시, 실제 EKS 배포, 공개 EIP 5-A/5-B 병행
+  참가자 검증, reset 재확인은 하지 않았다. 현재 EKS는 5-B만 실행 중이다.
 
 ### Runtime-builder IAM/S3 실제 EKS 전환
 
@@ -42,26 +72,33 @@
   `assumed-role/...runtime-builder/...` ARN, 합성 Flag를 확인했다. 운영자 진단이
   만든 proof 파일을 제거해 404를 확인한 뒤 공개 참가자 경로로 재실행했다.
   S3 객체는 여전히 알려진 합성 placeholder이며 전체 shortcut denial과
-  clean redeploy 검증은 남아 있다.
+  destroy 후 clean second apply 검증은 남아 있다.
 - 이번 수동 복구를 `orchestrate.sh`의 IAM migration 단계에 반영했다. 검토된 base
   Deployment에서 Pod template JSON patch를 생성하고 서버 dry-run 결과에서
   old socket/escape 필드가 제거됐는지 검사한 다음 실제 patch한다. 관련 로컬 테스트
-  34개가 통과했다. 이 재현성 수정은 아직 commit/PR/실제 재실행 전이다.
+  34개가 통과했다. 이 재현성 수정은 PR #9로 병합됐고 실제 IAM deploy 재실행에
+  사용됐다.
 - 현재 마무리 순서는 IAM 프로필 `reset --stage5-iam`으로 참가자 Git 변경과
   transient proof/Job을 복원하고, 이번 migration 복구와 참가자 PoC 문서/테스트를
-  PR/CI로 보존한 뒤 reset 및 이후 재배포 재현성을 필요한 범위에서 확인하는 것이다.
+  PR/CI로 보존한 뒤 reset 및 이후 재배포 재현성을 필요한 범위에서 확인하는 것이었다.
   기존 socket 전용 `accept`는 IAM 프로필에 사용하지 않는다. 팀원 블라인드 단서
   발견성과 clean destroy→second apply는 이번 공개 참가자 PoC로 검증되지 않았다.
 - 공개 참가자 검증 후 운영자가 `reset --stage5-iam`을 실행했다. Gitea의 실습
   commit `9945783`은 baseline commit `59c0be6a5b8645ef189a7f6588a6dbd19c66dcf3`으로
   복원됐고 Argo는 해당 revision에서 `Synced/Healthy`였다. Stage 2 Job이 삭제되고
   ModelGate와 runtime-builder Pod가 재시작/rollout되어 임시 세션과 `/tmp` proof가
-  초기화됐다. 이 reset은 실제 EKS에서 통과했지만 수정된 IAM deploy migration
-  경로의 두 번째 실행은 아직 검증하지 않았다.
+  초기화됐다. 이 reset은 실제 EKS에서 통과했다.
 - PR #9 첫 CI는 188개 테스트가 통과하고 shortcut 테스트 한 개에서
   `UnicodeDecodeError`가 발생했다. 새 `iam_template.py` import로 생성된
   `deploy/eks-lab/__pycache__/*.pyc`를 기존 테스트가 모든 파일을 UTF-8로 읽으며
   포함한 것이 원인이다. shortcut 검사는 배포 텍스트 파일 확장자만 읽도록 수정했다.
+- PR #9 수정 후 로컬 전체 Python 테스트 189개가 통과했다. PR check와 병합 후
+  main CI run `37361085911`이 성공했다. 사용자가 병합 커밋 `9cd7f48`을 main으로
+  동기화한 뒤 같은 검증된 OCI digest로
+  `deploy --skip-foundation --stage5-iam`을 다시 실행했다. 수정된 JSON template
+  patch 경로가 완료됐고 runtime-builder rollout, 전체 표시 Deployment Ready,
+  Argo baseline revision `59c0be6a5b8645ef189a7f6588a6dbd19c66dcf3`의
+  `Synced/Healthy`를 확인했다. 전체 참가자 PoC를 반복 실행하지는 않았다.
 
 ### Runtime-builder IRSA/S3 초기 준비 기록
 

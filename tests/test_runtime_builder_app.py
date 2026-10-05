@@ -4,6 +4,7 @@ import sys
 from types import SimpleNamespace
 from pathlib import Path
 
+import httpx
 from fastapi.testclient import TestClient
 
 from runtime_builder import aws_proof
@@ -124,3 +125,65 @@ def test_build_and_proof_deny_direct_requests_without_modelgate_relay(monkeypatc
     with TestClient(app) as client:
         assert client.post("/build", json={"source_ref": "main"}).status_code == 403
         assert client.get("/proof").status_code == 403
+
+
+def test_runtime_maintenance_requires_git_mode_and_forwards_only_fixed_request(monkeypatch):
+    from runtime_builder import main
+
+    expected = {
+        "proof": "runtime",
+        "success": True,
+        "evidence": "synthetic escape-node proof observed",
+        "flag": "FLAG{stage_5_node_placeholder}",
+    }
+    calls = []
+
+    class FakeAgentClient:
+        def __init__(self, **kwargs):
+            calls.append(("client", kwargs))
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            return None
+
+        async def post(self, path, *, content):
+            calls.append(("post", path, content))
+            return httpx.Response(200, json=expected)
+
+    monkeypatch.setattr(main.httpx, "AsyncClient", FakeAgentClient)
+    monkeypatch.setenv("BUILDER_MODE", "baseline")
+    with TestClient(app) as client:
+        assert client.post("/runtime/proof", headers=RELAY_HEADERS).status_code == 409
+        assert client.post("/runtime/proof").status_code == 403
+        assert calls == []
+        monkeypatch.setenv("BUILDER_MODE", "legacy-build")
+        assert client.post("/runtime/proof", json={"command": "id"}, headers=RELAY_HEADERS).status_code == 400
+        response = client.post("/runtime/proof", headers=RELAY_HEADERS)
+
+    assert response.status_code == 200
+    assert response.json() == expected
+    assert calls[0][1]["base_url"] == "http://runtime-relay.stage-05-runtime.svc:8080"
+    assert calls[0][1]["trust_env"] is False
+    assert calls[1] == ("post", "/proof", b"")
+
+
+def test_runtime_maintenance_rejects_untrusted_agent_response(monkeypatch):
+    from runtime_builder import main
+
+    class FakeAgentClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            return None
+
+        async def post(self, *_args, **_kwargs):
+            return httpx.Response(200, json={"flag": "arbitrary host data"})
+
+    monkeypatch.setattr(main.httpx, "AsyncClient", lambda **_kwargs: FakeAgentClient())
+    monkeypatch.setenv("BUILDER_MODE", "legacy-build")
+    with TestClient(app) as client:
+        response = client.post("/runtime/proof", headers=RELAY_HEADERS)
+    assert response.status_code == 502

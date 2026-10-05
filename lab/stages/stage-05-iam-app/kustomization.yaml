@@ -4,6 +4,9 @@ resources:
   - ../stage-04-gitops
   - namespace.yaml
   - runtime-builder-base.yaml.in
+  - runtime-maintenance.yaml.in
+  - runtime-maintenance-sa.yaml
+  - ../runtime-relay
   - controller-rbac.yaml
   - participant-status-rbac.yaml
   - serviceaccount.yaml.in
@@ -14,6 +17,14 @@ resources:
 patches:
   - path: argocd-stage5-patch.yaml
   - path: delete-stage4-runtime-builder.yaml
+  - path: delete-modelgate-runtime-relay-egress.yaml
+  - target: {kind: Service, name: runtime-relay, namespace: stage-05-runtime}
+    patch: |-
+      - {op: replace, path: /spec/selector/app, value: runtime-maintenance}
+  - target: {kind: NetworkPolicy, name: runtime-relay-ingress, namespace: stage-05-runtime}
+    patch: |-
+      - {op: replace, path: /spec/podSelector/matchLabels/app, value: runtime-maintenance}
+      - {op: replace, path: /spec/ingress/0/from, value: [{podSelector: {matchLabels: {app: runtime-builder}}}]}
   - target: {kind: Deployment, name: argocd-server, namespace: stage-04-gitops}
     patch: |-
       - {op: replace, path: /spec/replicas, value: 0}

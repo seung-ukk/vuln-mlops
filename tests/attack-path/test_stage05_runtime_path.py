@@ -11,9 +11,10 @@ RUNTIME_IMAGE = (
 
 
 def docs(name):
+    path = ROOT / "lab" / "stages" / "runtime-relay" / name if name == "runtime-relay.yaml" else STAGE / name
     return [
         item
-        for item in yaml.safe_load_all((STAGE / name).read_text(encoding="utf-8"))
+        for item in yaml.safe_load_all(path.read_text(encoding="utf-8"))
         if item
     ]
 

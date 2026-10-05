@@ -22,14 +22,32 @@
 | 2 RBAC | `modelgate` SA | Identity -> workload -> higher SA | `monitoring-runner` | 구현됨 |
 | 3 Monitoring | monitoring identity | topology/datasource trust | 제한된 Git credential | 구현됨 |
 | 4 GitOps | Git credential | Git change -> Argo reconciliation | `runtime-builder` 제어 | 구현됨 |
-| 5 IAM capstone (현재 EKS) | Git-controlled runtime-builder | 명령 주입 -> Pod IRSA -> 고정 S3 객체 | 합성 최종 Flag | 공개 참가자 경로 검증됨 |
-| 5 Runtime (별도 프로필) | runtime workload | container -> runtime -> node | escape worker node | 구현됨 |
+| 5-A Runtime (병행 배포 준비) | Stage 4 proof | 독립 agent -> containerd -> 합성 node proof | 고정 runtime Flag | 로컬 구현, EKS 미검증 |
+| 5-B IAM (현재 EKS) | Git-controlled runtime-builder | 명령 주입 -> Pod IRSA -> 고정 S3 객체 | 합성 S3 Flag | 공개 참가자 경로 검증됨 |
+| 5 Runtime (이전 프로필) | runtime workload | container -> runtime -> node | escape worker node | 구현됨 |
 | 6 CSI/IAM (확장안) | node/CSI trust | Kubernetes -> AWS storage | Final Flag | 미구현 |
 
-## 현재 EKS Stage 5 계약: Runtime Builder → IRSA → S3
+## 병행 Stage 5-A 계약: 독립 Runtime Agent → 노드 경계 proof
 
-이 계약은 현재 개인 EKS에 적용되어 공개 EIP 참가자 경로로 검증됐다. 아래
-socket Stage 5 계약은 저장소에 남은 별도 프로필에만 적용한다.
+- Input: Stage 4 Git 변경이 Argo `Synced/Healthy`이고 같은 proof 세션에서
+  Stage 4 proof가 확인된 참가자.
+- Intended: 공개 ModelGate 상태 응답에서 고정 runtime 경로를 발견하고 body 없는
+  요청을 보낸다. Git으로 활성화된 `runtime-builder`만 전용 escape worker의
+  `runtime-maintenance` agent에 연결해 단일 CRI 작업을 수행한다. 기존 socket
+  Stage 5의 검증된 합성 proof 작업을 재사용한다.
+- Output: 별도의 AWS identity 없이 합성 노드 파일 조회와 CRI container
+  create/start/remove의 관측 증거. 임의 노드 명령권은 제공하지 않는다.
+- Denial: Stage 4 이전 호출, 임의 request body/command/image/path/Pod target,
+  agent의 ServiceAccount token·IRSA, 일반 worker의 socket, ModelGate 및 다른
+  Pod의 agent 직접 접근을 거부한다. Builder baseline의 내부 maintenance 요청도
+  거부한다. Agent는 고정 Service·NetworkPolicy·admission shape를 사용한다.
+- Status: 로컬 구현과 테스트 단계이며 현재 EKS 배포·공개 참가자 PoC는 아직 없다.
+
+## Stage 5-B 계약: Runtime Builder → IRSA → S3
+
+이 계약은 현재 개인 EKS에 적용되어 공개 EIP 참가자 경로로 검증됐다. 5-A는
+같은 EKS에서 독립 에이전트로 추가할 예정이며, 아래 기존 socket Stage 5
+계약은 별도 프로필의 역사적 구현이다.
 
 - Input: Stage 3의 제한된 Git credential과 Stage 4의 Argo `Synced/Healthy` 증거.
 - Intended: Git의 `runtime-builder/` 경로에서 기존 앱의 legacy build profile을

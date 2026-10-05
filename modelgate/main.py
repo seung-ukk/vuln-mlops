@@ -581,7 +581,7 @@ async def _read_stage4_application(
     builder_endpoint = None
     if (
         stage4_proof == "FLAG{stage_4_gitops_placeholder}"
-        and stage5_mode == "runtime-socket"
+        and stage5_mode in {"runtime-socket", "iam-build"}
     ):
         runtime_relay = (
             f"/api/lab/footholds/{proof_id}/stage-05/runtime/proof"
@@ -636,12 +636,17 @@ async def foothold_stage5_runtime_proof(
         application["sync"] != "Synced"
         or application["health"] != "Healthy"
         or application["stage4_proof"] != "FLAG{stage_4_gitops_placeholder}"
-        or application["stage5_mode"] != "runtime-socket"
+        or application["stage5_mode"] not in {"runtime-socket", "iam-build"}
         or application["namespace"] != "stage-05-runtime"
     ):
         raise HTTPException(status_code=409, detail="Stage 5 runtime path is not ready")
     try:
-        response = await request.app.state.runtime_http.post("/proof", content=b"")
+        if application["stage5_mode"] == "iam-build":
+            response = await request.app.state.runtime_builder_http.post(
+                "/runtime/proof", content=b""
+            )
+        else:
+            response = await request.app.state.runtime_http.post("/proof", content=b"")
     except httpx.HTTPError as exc:
         raise HTTPException(status_code=502, detail="Runtime relay is unavailable") from exc
     if response.is_error:
