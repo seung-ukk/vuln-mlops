@@ -22,13 +22,14 @@
 | 2 RBAC | `modelgate` SA | Identity -> workload -> higher SA | `monitoring-runner` | 구현됨 |
 | 3 Monitoring | monitoring identity | topology/datasource trust | 제한된 Git credential | 구현됨 |
 | 4 GitOps | Git credential | Git change -> Argo reconciliation | `runtime-builder` 제어 | 구현됨 |
-| 5 Runtime | runtime workload | container -> runtime -> node | escape worker node | 구현됨 |
-| 6 CSI/IAM | node/CSI trust | Kubernetes -> AWS storage | Final Flag | 계획 |
+| 5 IAM capstone (현재 EKS) | Git-controlled runtime-builder | 명령 주입 -> Pod IRSA -> 고정 S3 객체 | 합성 최종 Flag | 공개 참가자 경로 검증됨 |
+| 5 Runtime (별도 프로필) | runtime workload | container -> runtime -> node | escape worker node | 구현됨 |
+| 6 CSI/IAM (확장안) | node/CSI trust | Kubernetes -> AWS storage | Final Flag | 미구현 |
 
-## 제안된 Stage 5 교체 계약: Runtime Builder → IRSA → S3
+## 현재 EKS Stage 5 계약: Runtime Builder → IRSA → S3
 
-이 계약은 아직 현재 EKS에 적용되지 않은 전환안이다. 운영 중인 socket Stage 5
-계약은 새 이미지와 공개 참가자 경로가 검증될 때까지 아래 기존 항목대로 유지한다.
+이 계약은 현재 개인 EKS에 적용되어 공개 EIP 참가자 경로로 검증됐다. 아래
+socket Stage 5 계약은 저장소에 남은 별도 프로필에만 적용한다.
 
 - Input: Stage 3의 제한된 Git credential과 Stage 4의 Argo `Synced/Healthy` 증거.
 - Intended: Git의 `runtime-builder/` 경로에서 기존 앱의 legacy build profile을
@@ -42,6 +43,12 @@
   버킷 전체·다른 객체 조회, hostPath/socket/privileged Deployment 변경을 거부한다.
 - Interpretation: 이 경로는 Pod 애플리케이션 문맥의 AWS 접근을 증명하며 노드 장악이나
   CSI 공격을 증명하지 않는다.
+- Observed: Stage 4 Git revision `99457834bbd874b22c1e2bcfabbc75b6a8fcaa96`가
+  Argo `Synced/Healthy`였고, build 입력의 `true`/`false`가 각각 completed/failed였다.
+  `/tmp`에서 실행되는 build command에 앱 디렉터리 이동을 포함한 입력으로
+  `completed`와 예상 계정, runtime-builder assumed-role ARN, 합성 S3 Flag를
+  공개 참가자 API에서 얻었다. 운영자 진단이 만든 proof 파일을 지우고 404를
+  확인한 뒤 참가자 경로만으로 재생성했다.
 
 ## Stage 1A: SSRF
 
@@ -234,7 +241,8 @@
 ### Output identity
 
 - 기존 `runtime-builder`의 허용된 실행 필드 제어
-- Stage 5에서 runtime socket 경계를 추가할 수 있는 workload control plane
+- 현재 IAM 프로필에서는 legacy build 모드를 활성화할 수 있는 workload control plane
+  (별도 socket 프로필에서는 runtime socket 경계)
 
 ### Success evidence
 

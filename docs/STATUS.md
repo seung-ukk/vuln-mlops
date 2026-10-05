@@ -7,16 +7,59 @@
 
 ## 현재 기준점
 
-- Branch: `codex/eks-stage5-admission-order`
-- Latest merged commit: `de88910` (PR #7)
+- Branch: local `main` at `fd29a46` (PR #8); migration repair is uncommitted
+- Latest merged commit: `fd29a46` (PR #8)
 - Repository: `https://github.com/seung-ukk/vuln-mlops`
 - Container: `ghcr.io/seung-ukk/vuln-mlops`
-- 현재 작업 트리: PR #7 이미지 pin이 개인 EKS에 적용되었다. 공개 EIP의 Stage 1~5
-  자동 수락 검증과 힌트 포함 수동 참가자 PoC가 통과했다. 이 과정에서 발견한 배포·
-  네트워크 수정은 현재 branch에 미커밋 상태다. 사용자가 범위를 확장해 기존 socket
-  Stage 5를 runtime-builder 앱의 IRSA→실습용 S3 경로로 교체하는 방향을 선택했다.
+- 현재 작업 트리: PR #8의 IAM runtime-builder 전환 코드가 main에 병합되었고,
+  개인 EKS의 기존 Stage 5 Deployment를 새 앱으로 전환했다. 공개 참가자 경로의
+  명령 주입→IRSA→S3 proof 검증은 아직 하지 않았다. 아래 초기 준비 기록의
+  "미적용" 문장은 당시 시점의 기록이며 현재 상태는 다음 항목이 우선한다.
 
-### Runtime-builder IRSA/S3 1차 준비 (AWS 미적용)
+### Runtime-builder IAM/S3 실제 EKS 전환
+
+- PR #8의 세 check와 병합 후 main CI가 성공했다. 게시된 GHCR OCI index digest는
+  `sha256:b7ae9077d1e3c94d7a26a274a8de65dfc56830f5febec390c1ba67e5a79bed9d`
+  이며 `linux/amd64` manifest를 포함한다.
+- 새 admission policy와 IAM migration overlay의 EKS server-side dry-run이 통과했다.
+  `deploy --skip-foundation --stage5-iam`은 ModelGate 새 image rollout과 Gitea IAM
+  baseline push `1f9888d9c1bb0b79da42d7797a9beb24d4cafca8`까지 진행했다.
+- Argo는 기존 Deployment의 escape node selector/toleration 등이 SSA merge에서
+  남아 새 admission policy의 general-worker 조건에 거부되어 `OutOfSync`였다.
+  운영자 SSA `--force-conflicts` dry-run도 runtime-relay, init container, socket
+  volume을 남겨 실제 적용하지 않았다. 검토된 IAM base의 Pod template만 교체하는
+  JSON patch를 server-side dry-run한 뒤 적용했다. 새 Deployment가 rollout했고
+  IRSA ServiceAccount와 위 새 digest를 사용한다. Argo는 revision `1f9888d`에서
+  `Synced/Healthy`로 복구됐다.
+- ModelGate 세 컨테이너가 새 digest를 사용하고 ModelGate→builder `/healthz`는 HTTP
+  200, 공개 EIP `/readyz`는 ready다. 공개 EIP 참가자 경로에서 Stage 1 SSRF/RCE,
+  Stage 2 Job, Stage 3 credential 교환, Stage 4 Git push `99457834bbd874b22c1e2bcfabbc75b6a8fcaa96`
+  및 Argo `Synced/Healthy`, Stage 5 명령 주입과 IRSA/S3 합성 proof를 확인했다.
+  `main; true; #`는 completed, `main; false; #`는 failed였다. build subprocess가
+  `/tmp`에서 실행되므로 `python -m runtime_builder.aws_proof`만 실행하면 모듈을
+  찾지 못해 failed/404가 된다. `main; cd /opt/modelgate && python -m
+  runtime_builder.aws_proof; #`로 재시험하여 completed와 예상 계정,
+  `assumed-role/...runtime-builder/...` ARN, 합성 Flag를 확인했다. 운영자 진단이
+  만든 proof 파일을 제거해 404를 확인한 뒤 공개 참가자 경로로 재실행했다.
+  S3 객체는 여전히 알려진 합성 placeholder이며 전체 shortcut denial과
+  clean redeploy 검증은 남아 있다.
+- 이번 수동 복구를 `orchestrate.sh`의 IAM migration 단계에 반영했다. 검토된 base
+  Deployment에서 Pod template JSON patch를 생성하고 서버 dry-run 결과에서
+  old socket/escape 필드가 제거됐는지 검사한 다음 실제 patch한다. 관련 로컬 테스트
+  34개가 통과했다. 이 재현성 수정은 아직 commit/PR/실제 재실행 전이다.
+- 현재 마무리 순서는 IAM 프로필 `reset --stage5-iam`으로 참가자 Git 변경과
+  transient proof/Job을 복원하고, 이번 migration 복구와 참가자 PoC 문서/테스트를
+  PR/CI로 보존한 뒤 reset 및 이후 재배포 재현성을 필요한 범위에서 확인하는 것이다.
+  기존 socket 전용 `accept`는 IAM 프로필에 사용하지 않는다. 팀원 블라인드 단서
+  발견성과 clean destroy→second apply는 이번 공개 참가자 PoC로 검증되지 않았다.
+- 공개 참가자 검증 후 운영자가 `reset --stage5-iam`을 실행했다. Gitea의 실습
+  commit `9945783`은 baseline commit `59c0be6a5b8645ef189a7f6588a6dbd19c66dcf3`으로
+  복원됐고 Argo는 해당 revision에서 `Synced/Healthy`였다. Stage 2 Job이 삭제되고
+  ModelGate와 runtime-builder Pod가 재시작/rollout되어 임시 세션과 `/tmp` proof가
+  초기화됐다. 이 reset은 실제 EKS에서 통과했지만 수정된 IAM deploy migration
+  경로의 두 번째 실행은 아직 검증하지 않았다.
+
+### Runtime-builder IRSA/S3 초기 준비 기록
 
 - Terraform의 EKS IRSA OIDC provider를 활성화하고, 실습 전용 private S3 버킷 하나,
   `stage-05-runtime/runtime-builder-iam` ServiceAccount만 신뢰하는 IAM role, 정확히
@@ -81,7 +124,7 @@
   로컬 전체 테스트에서 IAM 역할 ARN의 계정 중립적 형식 검사 문자열까지 금지하던
   기존 shortcut 테스트 실패를 재현했다. 실제 12자리 계정이 들어간
   하드코딩 ARN만 금지하도록 검사를 좁혔고, 수정 후 전체 Python 테스트가 통과했다.
-  이 수정은 아직 PR branch에 push되지 않았으며 CI 재실행이 필요하다.
+  이 수정은 PR #8에 포함되어 세 PR check와 병합 후 main CI가 통과했다.
 - 이 진단 Job은 운영자 검증이며 참가자 경로 성공 증거가 아니다. 최종 목표는
   Pod 명령 실행→IRSA→합성 S3 proof이고, 이 자체를 노드 장악으로 부르지 않는다.
 
