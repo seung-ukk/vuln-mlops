@@ -19,6 +19,10 @@
   이 수집기 변경도 아직 라이브 release에 적용하지 않았다.
   전환 안내서에 기존 `falco-cloudwatch` Helm release 갱신·rollout 확인을
   별도 단계로 명시했다.
+  Draft PR #11의 첫 CI에서 runtime-client 이미지 빌드가 실패해,
+  `.dockerignore` 허용 목록에 해당 이미지의 Dockerfile과 `crictl.yaml`을
+  추가했다. 수정 후 runtime-client 이미지는 로컬 Docker에서 빌드됐다.
+  PR CI 재검증은 진행 중이다.
   이 이미지는 로컬 태그 `vuln-mlops:hostpath-preflight`일 뿐 GHCR에 게시되지
   않았고 EKS에 적용되지 않았다.
 - 2026-10-07 새 hostPath capstone은 **로컬 구현·오프라인 검증 단계**다.

@@ -10,6 +10,10 @@
 !poc/**
 !runtime_builder/
 !runtime_builder/**
+!images/
+!images/runtime-client/
+!images/runtime-client/Dockerfile
+!images/runtime-client/crictl.yaml
 **/__pycache__/
 **/*.pyc
 **/*.db
