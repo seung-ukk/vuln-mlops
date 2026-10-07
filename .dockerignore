@@ -1,9 +1,15 @@
-.git
-.github
-.pytest_cache
-.venv
-__pycache__
-*.pyc
-*.db
-tests
-docs
+# Only the files copied by Dockerfile enter the build context. In particular,
+# local Terraform variables, checkpoints, and GitOps working copies stay out.
+**
+!Dockerfile
+!requirements/
+!requirements/base.txt
+!modelgate/
+!modelgate/**
+!poc/
+!poc/**
+!runtime_builder/
+!runtime_builder/**
+**/__pycache__/
+**/*.pyc
+**/*.db

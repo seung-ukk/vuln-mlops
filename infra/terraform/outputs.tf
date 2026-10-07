@@ -84,8 +84,18 @@ output "runtime_proof_bucket" {
 }
 
 output "runtime_proof_object_key" {
-  description = "Only object key readable by the runtime-builder IAM role."
+  description = "Synthetic proof object key for the legacy Pod IRSA and opt-in node IAM profiles."
   value       = local.runtime_proof_object_key
+}
+
+output "escape_node_role_arn" {
+  description = "Instance-profile role of the isolated escape worker for the replacement capstone."
+  value       = module.eks.eks_managed_node_groups["escape"].iam_role_arn
+}
+
+output "hostpath_node_capstone_enabled" {
+  description = "Whether the escape node role has the single-object synthetic S3 permission."
+  value       = var.enable_hostpath_node_capstone
 }
 
 output "node_security_group_ids" {

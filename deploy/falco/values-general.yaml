@@ -1,0 +1,3 @@
+nodeSelector:
+  lab.vuln-mlops/node-role: general
+tolerations: []

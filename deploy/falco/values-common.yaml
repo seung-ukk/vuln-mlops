@@ -1,0 +1,74 @@
+# Reviewed against falcosecurity/falco chart 9.2.0 (Falco 0.45.0).
+# Apply with exactly one node-pool values file; see README.md.
+driver:
+  kind: modern_ebpf
+  modernEbpf:
+    leastPrivileged: true
+
+resources:
+  requests: {cpu: 100m, memory: 512Mi}
+  limits: {cpu: 500m, memory: 1024Mi}
+
+collectors:
+  kubernetes:
+    enabled: false
+  containerEngine:
+    enabled: true
+    pluginRef: ghcr.io/falcosecurity/plugins/plugin/container:0.7.4
+    engines:
+      docker: {enabled: false}
+      podman: {enabled: false}
+      containerd: {enabled: false}
+      cri:
+        enabled: true
+        sockets: [/run/containerd/containerd.sock]
+      lxc: {enabled: false}
+      libvirt_lxc: {enabled: false}
+      bpm: {enabled: false}
+
+falcoctl:
+  artifact:
+    follow:
+      enabled: false
+  config:
+    artifact:
+      install:
+        refs: []
+
+falcosidekick:
+  enabled: false
+responseActions:
+  enabled: false
+metrics:
+  enabled: true
+  interval: 5m
+  outputRule: true
+  webserver:
+    enabled: false
+
+falco:
+  # Only reviewed lab rules run; upstream default alerts may include commands or paths.
+  rules_files: [/etc/falco/rules.d]
+  priority: info
+  json_output: true
+  json_include_output_fields_property: false
+  append_output: []
+  stdout_output: {enabled: true}
+  syslog_output: {enabled: false}
+  file_output: {enabled: false}
+  http_output: {enabled: false}
+  log_syslog: false
+
+customRules:
+  lab-processes.yaml: |-
+    - rule: Lab container process started
+      desc: Record process starts in the four attack-path namespaces without arguments or file content.
+      condition: >
+        evt.type in (execve, execveat) and
+        container.id != host and
+        k8s.ns.name in (modelgate-lab, stage-02-rbac, stage-04-gitops, stage-05-runtime)
+      output: >
+        lab process start ns=%k8s.ns.name pod=%k8s.pod.name
+        container=%container.name process=%proc.name
+      priority: NOTICE
+      tags: [vuln-mlops, observe-only, process]

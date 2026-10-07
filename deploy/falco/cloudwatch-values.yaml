@@ -1,0 +1,72 @@
+# fluent/fluent-bit chart 0.58.2, Fluent Bit 5.1.2.
+# One collector per node, including the tainted escape worker.
+kind: DaemonSet
+fullnameOverride: falco-cloudwatch
+testFramework: {enabled: false}
+rbac: {create: false}
+serviceAccount:
+  create: true
+  name: falco-cloudwatch
+  automountServiceAccountToken: false
+nodeSelector:
+  kubernetes.io/os: linux
+tolerations:
+  - key: lab.vuln-mlops/escape
+    operator: Equal
+    value: "true"
+    effect: NoSchedule
+resources:
+  requests: {cpu: 50m, memory: 64Mi}
+  limits: {cpu: 200m, memory: 256Mi}
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities: {drop: [ALL]}
+  readOnlyRootFilesystem: true
+daemonSetVolumes:
+  - name: varlog
+    hostPath: {path: /var/log, type: Directory}
+  - name: state
+    emptyDir: {}
+daemonSetVolumeMounts:
+  - name: varlog
+    mountPath: /var/log
+    readOnly: true
+  - name: state
+    mountPath: /fluent-bit/state
+config:
+  service: |
+    [SERVICE]
+        Daemon Off
+        Flush 5
+        Log_Level info
+        Parsers_File /fluent-bit/etc/parsers.conf
+        HTTP_Server On
+        HTTP_Listen 0.0.0.0
+        HTTP_Port 2020
+        Health_Check On
+  inputs: |
+    [INPUT]
+        Name tail
+        Path /var/log/containers/falco-*_falco-observe_falco-*.log
+        Tag falco.*
+        multiline.parser cri
+        DB /fluent-bit/state/falco.db
+        Read_From_Head On
+        Mem_Buf_Limit 5MB
+        Skip_Long_Lines On
+  filters: |
+    [FILTER]
+        Name grep
+        Match falco.*
+        Regex log Lab.(container.process.started|escape.host.maintenance.started)
+  outputs: |
+    [OUTPUT]
+        Name cloudwatch_logs
+        Match falco.*
+        Region ap-northeast-2
+        Log_Group_Name /vuln-mlops/vuln-mlops-personal-lab/falco
+        Log_Stream_Prefix falco-
+        Auto_Create_Group Off
+        Log_Key log
+        Retry_Limit False
+  customParsers: ""

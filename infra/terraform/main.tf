@@ -225,12 +225,12 @@ module "eks" {
       iam_role_use_name_prefix   = false
       vpc_security_group_ids     = [aws_security_group.escape_nodes.id]
 
-      # Stage 5 uses a synthetic, fixed proof that exists only on the disposable
-      # escape worker.  It is not a credential and is never placed in a Pod
-      # manifest or mounted directly into the runtime-builder workload.
+      # The new capstone replaces the disposable escape worker's fixed proof
+      # with a host maintenance hook. This changes user data and rolls only
+      # this node group when the opt-in profile is enabled.
       cloudinit_pre_nodeadm = [{
         content_type = "text/x-shellscript"
-        content      = <<-EOT
+        content      = var.enable_hostpath_node_capstone ? file("${path.module}/escape-node-maintenance.sh") : <<-EOT
           #!/bin/bash
           set -euo pipefail
           install -d -m 0755 -o root -g root /var/lib/vuln-mlops

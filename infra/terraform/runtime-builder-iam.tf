@@ -83,7 +83,14 @@ data "aws_iam_policy_document" "runtime_builder_proof" {
 }
 
 resource "aws_iam_role_policy" "runtime_builder_proof" {
+  count  = var.enable_hostpath_node_capstone ? 0 : 1
   name   = "read-synthetic-runtime-proof"
   role   = aws_iam_role.runtime_builder.id
   policy = data.aws_iam_policy_document.runtime_builder_proof.json
+}
+
+# Preserve the old singleton's state address during the profile transition.
+moved {
+  from = aws_iam_role_policy.runtime_builder_proof
+  to   = aws_iam_role_policy.runtime_builder_proof[0]
 }

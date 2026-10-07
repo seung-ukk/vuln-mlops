@@ -1,0 +1,45 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: runtime-builder
+  namespace: stage-05-runtime
+  labels: {lab.vuln-mlops/stage: "05"}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: runtime-builder}}
+  template:
+    metadata: {labels: {app: runtime-builder}}
+    spec:
+      serviceAccountName: runtime-builder-hostpath
+      automountServiceAccountToken: false
+      nodeSelector: {lab.vuln-mlops/node-role: escape, kubernetes.io/arch: amd64}
+      tolerations:
+        - {key: lab.vuln-mlops/escape, operator: Equal, value: "true", effect: NoSchedule}
+      securityContext: {runAsUser: 10001, runAsGroup: 10001, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: runtime-builder
+          image: __RUNTIME_BUILDER_IMAGE__
+          command: [uvicorn, runtime_builder.main:app, --host, 0.0.0.0, --port, "8080"]
+          ports: [{name: http, containerPort: 8080}]
+          env:
+            - {name: STAGE5_MODE, value: hostpath}
+            - {name: BUILDER_MODE, value: baseline}
+            - {name: HOME, value: /tmp}
+            - {name: AWS_EC2_METADATA_DISABLED, value: "true"}
+          readinessProbe: {httpGet: {path: /healthz, port: http}, initialDelaySeconds: 2, periodSeconds: 5}
+          livenessProbe: {httpGet: {path: /healthz, port: http}, initialDelaySeconds: 10, periodSeconds: 10}
+          resources: {requests: {cpu: 20m, memory: 128Mi}, limits: {cpu: 300m, memory: 512Mi}}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+            - {name: host-maintenance, mountPath: /host-maintenance, readOnly: true}
+            - {name: node-evidence, mountPath: /node-evidence, readOnly: true}
+      volumes:
+        - {name: tmp, emptyDir: {}}
+        - name: host-maintenance
+          hostPath: {path: /var/lib/vuln-mlops/maintenance, type: Directory}
+        - name: node-evidence
+          hostPath: {path: /var/lib/vuln-mlops/node-evidence, type: Directory}

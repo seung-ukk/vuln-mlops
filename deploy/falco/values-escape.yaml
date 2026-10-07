@@ -1,0 +1,7 @@
+nodeSelector:
+  lab.vuln-mlops/node-role: escape
+tolerations:
+  - key: lab.vuln-mlops/escape
+    operator: Equal
+    value: "true"
+    effect: NoSchedule

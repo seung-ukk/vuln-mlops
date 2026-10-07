@@ -1,0 +1,18 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../stage-04-gitops
+  - namespace.yaml
+  - runtime-builder-base.yaml.in
+  - controller-rbac.yaml
+  - participant-status-rbac.yaml
+  - service.yaml
+  - default-deny.yaml
+  - serviceaccount.yaml
+  - network-policy.yaml
+patches:
+  - path: argocd-stage5-patch.yaml
+  - path: delete-stage4-runtime-builder.yaml
+  - target: {kind: Deployment, name: argocd-server, namespace: stage-04-gitops}
+    patch: |-
+      - {op: replace, path: /spec/replicas, value: 0}
