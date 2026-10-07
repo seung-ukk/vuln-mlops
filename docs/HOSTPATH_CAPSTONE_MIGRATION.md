@@ -82,8 +82,7 @@ replaced after a solve.
    `deploy/eks-lab/stage-05-hostpath/falco-values.yaml`. The current common
    rule excludes `container.id = host`; this additional observe-only rule
    records the host maintenance script start without logging arguments or
-   paths. Confirm Fluent Bit sends the event to the existing seven-day
-   CloudWatch group. No response or blocking action is configured.
+   paths. No response or blocking action is configured.
 
    ```bash
    helm upgrade --install falco-escape falco \
@@ -92,6 +91,20 @@ replaced after a solve.
      -f deploy/falco/values-common.yaml \
      -f deploy/falco/values-escape.yaml \
      -f deploy/eks-lab/stage-05-hostpath/falco-values.yaml
+   ```
+7. Upgrade the existing `falco-cloudwatch` collector with the reviewed
+   `deploy/falco/cloudwatch-values.yaml`. Its previous filter forwards only
+   container process alerts; the new filter also forwards the host maintenance
+   alert. Confirm all three collector Pods are Ready and a new host alert
+   reaches the existing seven-day CloudWatch group. Do not recreate the log
+   group, Pod Identity role, or association.
+
+   ```bash
+   helm upgrade --install falco-cloudwatch fluent-bit \
+     --repo https://fluent.github.io/helm-charts --version 0.58.2 \
+     -n falco-observe --wait --atomic --timeout 10m \
+     -f deploy/falco/cloudwatch-values.yaml
+   kubectl -n falco-observe rollout status daemonset/falco-cloudwatch --timeout=10m
    ```
 
 ## Acceptance and reset

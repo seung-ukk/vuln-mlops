@@ -17,6 +17,8 @@
   컨테이너 경보와 호스트 maintenance 경보 두 종류만 전송하도록 필터를 수정했다.
   전체 테스트 224개와 Fluent Bit chart 0.58.2 Helm 렌더링이 통과했다.
   이 수집기 변경도 아직 라이브 release에 적용하지 않았다.
+  전환 안내서에 기존 `falco-cloudwatch` Helm release 갱신·rollout 확인을
+  별도 단계로 명시했다.
   이 이미지는 로컬 태그 `vuln-mlops:hostpath-preflight`일 뿐 GHCR에 게시되지
   않았고 EKS에 적용되지 않았다.
 - 2026-10-07 새 hostPath capstone은 **로컬 구현·오프라인 검증 단계**다.
