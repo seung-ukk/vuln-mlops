@@ -22,7 +22,9 @@
   Draft PR #11의 첫 CI에서 runtime-client 이미지 빌드가 실패해,
   `.dockerignore` 허용 목록에 해당 이미지의 Dockerfile과 `crictl.yaml`을
   추가했다. 수정 후 runtime-client 이미지는 로컬 Docker에서 빌드됐다.
-  PR CI 재검증은 진행 중이다.
+  수정 커밋 `5381e1e`의 PR CI는 Python test, 앱 container 빌드,
+  runtime-client 빌드 3개가 모두 통과했다. PR은 draft이며 아직 main 병합,
+  GHCR 새 digest 발행, EKS/GitOps 전환은 하지 않았다.
   이 이미지는 로컬 태그 `vuln-mlops:hostpath-preflight`일 뿐 GHCR에 게시되지
   않았고 EKS에 적용되지 않았다.
 - 2026-10-07 새 hostPath capstone은 **로컬 구현·오프라인 검증 단계**다.
@@ -72,7 +74,9 @@
   SSRF canary와 marker-only RCE는 재검증 성공했다. 이 회차의 Stage 2~5와
   새 참가자 IP `112.170.44.247`의 직접 접속은 확인하지 않았다.
 
-- Branch: local `main` at `74ac10a` (PR #10); 기존 미추적 `checkpoints/`는 이 작업에서 변경하지 않음
+- Base: `main` at `74ac10a` (PR #10); capstone 작업 브랜치는
+  `codex/hostpath-node-capstone` (draft PR #11). 기존 미추적 `checkpoints/`는
+  이 작업에서 변경하지 않음
 - Latest merged commit: `74ac10a` (PR #10)
 - Repository: `https://github.com/seung-ukk/vuln-mlops`
 - Container: `ghcr.io/seung-ukk/vuln-mlops`
