@@ -1,5 +1,17 @@
 # vuln-mlops 공격 체인 랩 계획
 
+## 2026-10-07 목표 경로 변경
+
+Stage 1~3의 공개 foothold, RBAC, monitoring 및 제한된 Git credential은 유지한다.
+Stage 4 이후의 목표는 Git 변경→Argo 동기화→전용 escape worker의 hostPath 경계
+돌파→실제 호스트 실행 문맥→그 노드의 IAM 역할로 실습용 S3 단일 객체 조회로
+교체한다. 기존 5-A 고정 CRI relay와 5-B Pod IRSA 명령 주입은 배포된 이전
+프로필로만 취급하고 새 경로의 성공 증거에 사용하지 않는다. 이 변경의 상세
+입력·성공·거부 조건은 `STAGE_CONTRACTS.md`의 목표 계약을 우선한다.
+
+현재 아래의 5-A/5-B 설명은 이전 구현 기록이다. 새 경로를 실제 EKS에서
+검증하기 전까지 기존 배포 상태를 새 목표의 성공으로 해석하지 않는다.
+
 ## 1. 목적
 
 이 프로젝트는 외부에 노출된 취약한 MLOps 애플리케이션에서 시작하여

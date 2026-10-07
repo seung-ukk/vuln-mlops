@@ -113,6 +113,12 @@ variable "escape_instance_types" {
   default     = ["t3.medium"]
 }
 
+variable "enable_hostpath_node_capstone" {
+  description = "Opt in to the replacement hostPath lab's single-object S3 permission on the isolated escape worker role. Do not enable until the legacy runtime agent and Pod IRSA path are removed."
+  type        = bool
+  default     = false
+}
+
 variable "general_desired_size" {
   description = "Desired general worker count."
   type        = number

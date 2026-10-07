@@ -1,0 +1,18 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: falco-cloudwatch-pod-identity
+  namespace: falco-observe
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/instance: falco-cloudwatch
+  policyTypes: [Ingress, Egress]
+  ingress: []
+  # Existing namespace policy already grants DNS and HTTPS. This grants only
+  # the collector access to the EKS Pod Identity Agent's link-local endpoint.
+  egress:
+    - to:
+        - ipBlock: {cidr: 169.254.170.23/32}
+      ports:
+        - {protocol: TCP, port: 80}

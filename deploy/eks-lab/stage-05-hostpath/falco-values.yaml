@@ -1,0 +1,15 @@
+# Add only to the falco-escape release during the hostPath capstone cutover.
+# The common rule remains container-only. No command line or path is emitted.
+customRules:
+  lab-host-maintenance.yaml: |-
+    - rule: Lab escape host maintenance started
+      desc: Observe the disposable escape worker's host-side maintenance service.
+      condition: >
+        evt.type in (execve, execveat) and
+        container.id = host and
+        proc.name = bash and
+        proc.cmdline contains "/var/lib/vuln-mlops/maintenance/task.sh"
+      output: >
+        lab host maintenance start process=%proc.name uid=%user.uid
+      priority: NOTICE
+      tags: [vuln-mlops, observe-only, host-maintenance]

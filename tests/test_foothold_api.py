@@ -197,8 +197,11 @@ def test_foothold_schema_has_no_arbitrary_proxy_or_request_body(tmp_path, monkey
         "/api/lab/footholds/{proof_id}/stage-05/build/info",
         "/api/lab/footholds/{proof_id}/stage-05/build",
         "/api/lab/footholds/{proof_id}/stage-05/aws-proof",
+        "/api/lab/footholds/{proof_id}/stage-05/node-result",
     }
     create = paths["/api/lab/footholds/{proof_id}/stage-02/job"]["post"]
     assert "requestBody" not in create
     create_parameters = create.get("parameters", [])
     assert [parameter["name"] for parameter in create_parameters] == ["proof_id"]
+    node_result = paths["/api/lab/footholds/{proof_id}/stage-05/node-result"]["get"]
+    assert "requestBody" not in node_result

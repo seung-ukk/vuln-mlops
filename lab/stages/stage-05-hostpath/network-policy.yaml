@@ -1,0 +1,11 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: runtime-builder-hostpath-ingress, namespace: stage-05-runtime}
+spec:
+  podSelector: {matchLabels: {app: runtime-builder}}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: modelgate-lab}}
+          podSelector: {matchLabels: {app.kubernetes.io/name: modelgate}}
+      ports: [{protocol: TCP, port: 8080}]

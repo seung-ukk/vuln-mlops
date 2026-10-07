@@ -112,6 +112,7 @@ class Stage4ApplicationStatus(BaseModel):
     stage5_mode: str | None
     runtime_relay: str | None
     builder_endpoint: str | None
+    node_result_endpoint: str | None = None
 
 
 class Stage5RuntimeProof(BaseModel):

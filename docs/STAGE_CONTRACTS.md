@@ -1,5 +1,59 @@
 # Stage Contracts
 
+## 2026-10-07 목표 계약: GitOps → hostPath → Node IAM
+
+이 절은 새로 승인된 목표 경로의 계약이다. 아래의 5-A/5-B 및 socket 계약은
+현재 배포된 이전 프로필의 검증 기록이며 새 경로의 성공으로 간주하지 않는다.
+
+### Stage 1~3 인계
+
+- Stage 1 SSRF/RCE, Stage 2 제한된 RBAC Job, Stage 3 monitoring credential
+  교환은 유지한다. Stage 3의 출력은 `stage4-lab` branch와
+  `runtime-builder/` 경로에 한정된 합성 Git credential이다.
+- 이 credential만으로 Kubernetes API, 노드, S3에 직접 접근하지 못해야 한다.
+
+### Stage 4: 신뢰된 Git 변경에서 Pod 사양 변경으로
+
+- Input: Stage 3의 제한된 Git credential.
+- Intended: 기존 `runtime-builder/deployment.yaml`을 변경하고 Argo CD의
+  `runtime-builder` Application이 대상 Deployment 하나에 동기화하게 한다.
+- Success: 참가자 commit SHA와 Argo revision 일치, `Synced/Healthy`, 허용된
+  Pod template diff와 새 Pod UID/노드 이름. 고정 Flag annotation만으로는
+  Stage 4 또는 Stage 5 성공을 인정하지 않는다.
+- Denial: 다른 branch/path/repository, 다른 Kubernetes resource/namespace,
+  image·ServiceAccount·nodeSelector 변경, 임의 Secret/RBAC 생성은 거부한다.
+
+### Stage 5: hostPath를 통한 실제 노드 문맥과 IAM
+
+- Input: Stage 4에서 변경된 단일 workload. Pod 자체에는 S3 IRSA 또는 Pod
+  Identity를 부여하지 않는다.
+- Intended: 처음에는 비루트 UID/GID와 읽기 전용 hostPath mount 때문에 호스트
+  조작이 실패한다. 참가자는 Deployment의 검토된 보안 필드를 변경하여
+  전용 escape worker의 `/var/lib/vuln-mlops/maintenance/task.sh`를 수정한다.
+  systemd path unit이 이 파일 변경을 감지하고 host root 문맥에서 실행한다.
+  컨테이너 내부 파일 쓰기나 합성 node marker만으로 노드 장악을 주장하지 않는다.
+- `readOnlyRootFilesystem`은 컨테이너 이미지 루트에만 적용된다. hostPath의
+  쓰기 제한은 `volumeMount.readOnly`와 호스트 파일 권한으로 구성한다.
+- Success: 독립적으로 확인된 호스트 실행 문맥과 그 노드의 instance-profile
+  역할로 실행된 `s3:GetObject`가 실습용 버킷의 정확한 한 객체에 성공한다.
+  S3 객체의 Flag는 합성 값이며 Terraform state와 Git에는 저장하지 않는다.
+- 호스트 실행 결과는 maintenance 디렉터리 바깥의
+  `/var/lib/vuln-mlops/node-evidence`에만 쓴다. Pod는 이 별도 hostPath를
+  읽기 전용으로 마운트한다. 참가자가 Git 명령만으로 결과 JSON을 위조해
+  공개 API의 성공을 얻을 수 없어야 한다.
+- Denial: Git/Argo 변경 전 일반 Pod의 노드 IAM 사용, Pod IRSA를 통한 S3 조회,
+  다른 S3 객체·버킷·계정/리전 접근, 일반 worker 또는 다른 workload의 hostPath
+  사용을 거부한다. 노드 역할에는 EKS 필수 권한 외에 정확한 객체의
+  `s3:GetObject`만 추가한다.
+- Reset: Git baseline과 일시 Pod를 되돌리고 장악된 escape worker를 폐기·교체한다.
+  새 worker에서 호스트 상태와 역할 경계를 다시 확인한다.
+- Scope: 개인 격리 EKS의 단일 tainted escape worker에서만 검증한다. 실제
+  노드 장악 뒤에는 kubelet 및 그 노드의 다른 DaemonSet도 영향권에 있으므로
+  admission은 진입 경로를 제한할 뿐 사후 격리 경계로 간주하지 않는다.
+
+참가자 출력은 정확한 실습용 S3 객체에서 얻은 합성 Flag와 제한된 계정·역할
+식별자만 허용한다. 호스트 명령 전체 출력, 임의 파일, credential은 공개하지 않는다.
+
 이 문서는 각 Stage의 시작 identity, 허용된 공격 경로, 성공 증거 및 반드시 거부해야
 하는 지름길을 정의한다. 구현이 문서와 다르면 코드를 확장하기 전에 이 문서를 먼저
 검토하고 결정 내용을 기록한다.

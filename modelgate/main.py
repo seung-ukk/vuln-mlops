@@ -579,6 +579,7 @@ async def _read_stage4_application(
     stage4_proof = annotations.get("lab.vuln-mlops/stage-04-proof")
     runtime_relay = None
     builder_endpoint = None
+    node_result_endpoint = None
     if (
         stage4_proof == "FLAG{stage_4_gitops_placeholder}"
         and stage5_mode in {"runtime-socket", "iam-build"}
@@ -591,6 +592,8 @@ async def _read_stage4_application(
         and stage5_mode == "iam-build"
     ):
         builder_endpoint = f"/api/lab/footholds/{proof_id}/stage-05/build/info"
+    if stage5_mode == "hostpath" and deployment_namespace == "stage-05-runtime":
+        node_result_endpoint = f"/api/lab/footholds/{proof_id}/stage-05/node-result"
     return {
         "name": "runtime-builder",
         "namespace": deployment_namespace,
@@ -601,7 +604,52 @@ async def _read_stage4_application(
         "stage5_mode": stage5_mode,
         "runtime_relay": runtime_relay,
         "builder_endpoint": builder_endpoint,
+        "node_result_endpoint": node_result_endpoint,
     }
+
+
+@app.get(
+    "/api/lab/footholds/{proof_id}/stage-05/node-result",
+    response_model=Stage5IamProof,
+    summary="Read the bounded host maintenance result",
+    tags=["lab foothold"],
+)
+async def foothold_stage5_node_result(request: Request, proof_id: UUID) -> dict[str, str]:
+    application = await _read_stage4_application(request, proof_id)
+    if (
+        application["sync"] != "Synced"
+        or application["health"] != "Healthy"
+        or application["stage5_mode"] != "hostpath"
+        or application["namespace"] != "stage-05-runtime"
+    ):
+        raise HTTPException(status_code=409, detail="Host maintenance path is not ready")
+    try:
+        response = await request.app.state.runtime_builder_http.get("/node/result")
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail="Runtime builder is unavailable") from exc
+    if response.status_code == 404:
+        raise HTTPException(status_code=404, detail="No host result has been observed")
+    if response.is_error:
+        raise HTTPException(status_code=502, detail="Host result is unavailable")
+    payload = response.json()
+    account = payload.get("account") if isinstance(payload, dict) else None
+    role = payload.get("role") if isinstance(payload, dict) else None
+    flag = payload.get("flag") if isinstance(payload, dict) else None
+    if (
+        not isinstance(payload, dict)
+        or set(payload) != {"account", "role", "flag"}
+        or not isinstance(account, str)
+        or not isinstance(role, str)
+        or not isinstance(flag, str)
+        or re.fullmatch(r"[0-9]{12}", account) is None
+        or re.fullmatch(
+            rf"arn:aws:sts::{account}:assumed-role/vuln-mlops-escape-node/[^/]+",
+            role,
+        ) is None
+        or re.fullmatch(r"FLAG\{stage_5_iam_[a-z0-9_]+\}", flag) is None
+    ):
+        raise HTTPException(status_code=502, detail="Host result is invalid")
+    return payload
 
 
 @app.get(

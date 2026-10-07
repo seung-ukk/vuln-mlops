@@ -1,22 +1,229 @@
 # Project Status
 
-마지막 갱신: 2026-10-06 (Asia/Seoul)
+마지막 갱신: 2026-10-07 (Asia/Seoul)
 
 이 문서는 새 Codex 작업과 팀원이 현재 상태를 빠르게 파악하기 위한 인계 문서다.
 작업을 시작할 때 `LAB_PLAN.md`, `STAGE_CONTRACTS.md`, 이 문서를 순서대로 읽는다.
 
 ## 현재 기준점
 
-- Branch: local `main` at `9cd7f48` (PR #9)
-- Latest merged commit: `9cd7f48` (PR #9)
+- 2026-10-07 이미지 발행 사전 검증: 전체 Python 테스트 224개가 통과했다.
+  신규 공개 `/node-result` 경로를 기존 API 허용 목록 테스트에 반영하고
+  요청 본문이 없음을 확인했다. `.dockerignore`를 Dockerfile이 실제 복사하는
+  소스와 기본 requirements만 허용하도록 좁혀 로컬 Terraform 변수와 다른
+  작업물을 빌드 컨텍스트에서 제외했다. 새 이미지를 로컬 Docker에서 빌드하고
+  컨테이너 안에서 ModelGate, runtime-builder, PoC 모듈을 import했다.
+  새 Falco 호스트 경보가 기존 Fluent Bit 필터에서 누락되는 점을 찾아,
+  컨테이너 경보와 호스트 maintenance 경보 두 종류만 전송하도록 필터를 수정했다.
+  전체 테스트 224개와 Fluent Bit chart 0.58.2 Helm 렌더링이 통과했다.
+  이 수집기 변경도 아직 라이브 release에 적용하지 않았다.
+  전환 안내서에 기존 `falco-cloudwatch` Helm release 갱신·rollout 확인을
+  별도 단계로 명시했다.
+  Draft PR #11의 첫 CI에서 runtime-client 이미지 빌드가 실패해,
+  `.dockerignore` 허용 목록에 해당 이미지의 Dockerfile과 `crictl.yaml`을
+  추가했다. 수정 후 runtime-client 이미지는 로컬 Docker에서 빌드됐다.
+  수정 커밋 `5381e1e`의 PR CI는 Python test, 앱 container 빌드,
+  runtime-client 빌드 3개가 모두 통과했다. PR은 draft이며 아직 main 병합,
+  GHCR 새 digest 발행, EKS/GitOps 전환은 하지 않았다.
+  이 이미지는 로컬 태그 `vuln-mlops:hostpath-preflight`일 뿐 GHCR에 게시되지
+  않았고 EKS에 적용되지 않았다.
+- 2026-10-07 새 hostPath capstone은 **로컬 구현·오프라인 검증 단계**다.
+  `stage-05-hostpath` baseline/overlay와 admission 정책, escape worker의
+  systemd path/service bootstrap, node IAM 단일 객체 opt-in, 이전 Pod IRSA
+  S3 정책의 opt-in 시 제거, 제한된 결과 API, 멘토용 PoC 생성기와 경계 테스트를
+  추가했다. Terraform opt-in 기본값은 `false`이며 실제 EKS와 GitOps 저장소에는
+  아직 적용하지 않았다. 변경된 앱 이미지를 새 OCI digest로 발행해야 한다.
+  `docs/HOSTPATH_CAPSTONE_MIGRATION.md`에 전환·검증·노드 교체 순서를 기록했다.
+  Terraform `fmt -check`/`validate`, Kustomize 렌더링, 관련 Python 테스트
+  84개가 통과했다. 사용자의 WSL 가상환경에서 새 경로 테스트 17개도
+  통과했고, 생성한 host task는 WSL `bash -n`을 통과했다. 대상 EKS endpoint
+  일치를 확인한 뒤 새 admission 정책·바인딩의 `--dry-run=server`가 통과했다.
+  이 드라이런은 실제 Deployment 변경의 허용 여부까지 검증하지 않는다.
+  사용자가 생성한 Terraform plan은 1 add/2 update/1 destroy이며,
+  escape node에 정확한 S3 객체의 `s3:GetObject`를 추가하고 이전 Pod IRSA
+  객체 정책을 제거한다. escape node group은 같은 launch template의 버전만
+  갱신하고 새 user-data에는 host maintenance unit이 포함된다. plan은
+  **적용하지 않았다**. 실제 systemd·node IAM/S3 검증은 아직 수행하지 않았다.
+  기존 Falco 공통 규칙은 호스트 프로세스를 제외하므로 escape release에만
+  추가할 관측 전용 host maintenance 규칙을 별도 values 파일로 만들었다.
+  pinned chart 9.2.0의 Helm 렌더링과 경계 테스트가 통과했지만 라이브 Falco
+  업그레이드와 실제 event 수집은 아직 하지 않았다.
+  추가 검토에서 writable maintenance hostPath에 결과 JSON을 두면 호스트 실행
+  없이 위조할 수 있음을 확인해, 노드가 별도 `node-evidence` 디렉터리에 쓰고
+  Pod는 그 디렉터리를 고정 read-only hostPath로만 읽도록 수정했다. 이에 따른
+  로컬 테스트·Terraform 검증·Kustomize 렌더링은 통과했다. 사용자가 만든
+  `/tmp/vuln-hostpath-node-review.tfplan`은 이 수정 이전 계획이므로 **폐기**했다.
+  새 `/tmp/vuln-hostpath-node-review-v2.tfplan`은 사용자가 생성했고 1 add/2
+  update/1 destroy만 포함한다. 저장된 계획을 읽어 새 user-data에
+  `maintenance/task.sh`와 별도 `node-evidence` 디렉터리가 모두 있으며 이전
+  합성 node Flag는 없음을 확인했다. IAM은 escape node의 정확한 S3 객체
+  `s3:GetObject`만 추가하고 Pod IRSA 정책을 제거한다. **아직 적용하지 않았다.**
+  수정된 admission 정책·바인딩도 대상 EKS의 `--dry-run=server`를 통과했다.
+  기존 정책의 `last-applied-configuration` 경고만 있었고 실제 저장은 하지 않았다.
+  이는 정책 표현식의 서버 검증이며 공격/거부 Deployment의 라이브 허용 여부는
+  아직 검증하지 않았다.
+- 2026-10-07 새 목표: Stage 1~3을 유지하고 Stage 4 GitOps가 전용 escape
+  worker의 hostPath 기반 노드 장악으로 이어지며, 최종 S3 객체는 Pod IRSA가
+  아닌 노드 IAM 역할로 읽는 단일 경로를 설계 중이다. 기존 5-A/5-B는
+  이전 프로필이며 현재 EKS 배포는 아직 새 목표로 전환되지 않았다. 목표
+  계약은 `STAGE_CONTRACTS.md` 상단에 추가했다.
+- 새 목표의 실습 환경은 사용자가 현재 개인 EKS로 지정했다. 해당 EKS의
+  escape worker에는 기존 maintenance agent와 Falco·Fluent Bit 등이 있어
+  전환 시 이전 agent 제거, 관측 신뢰 범위, 노드 교체 reset이 필요하다.
+- 2026-10-07 공개 EIP의 `/docs`·`/readyz`는 집 IP에서 HTTP 200, Stage 1
+  SSRF canary와 marker-only RCE는 재검증 성공했다. 이 회차의 Stage 2~5와
+  새 참가자 IP `112.170.44.247`의 직접 접속은 확인하지 않았다.
+
+- Base: `main` at `74ac10a` (PR #10); capstone 작업 브랜치는
+  `codex/hostpath-node-capstone` (draft PR #11). 기존 미추적 `checkpoints/`는
+  이 작업에서 변경하지 않음
+- Latest merged commit: `74ac10a` (PR #10)
 - Repository: `https://github.com/seung-ukk/vuln-mlops`
 - Container: `ghcr.io/seung-ukk/vuln-mlops`
-- 현재 상태: PR #9까지 main에 병합됐고 개인 EKS의 IAM runtime-builder 앱에서
-  공개 참가자 경로 Stage 1~5와 명령 주입→IRSA→S3 합성 proof가 통과했다.
-  reset과 수정된 IAM deploy 재실행도 통과했다. 아래 초기 준비 기록의
-  "미적용" 문장은 당시 시점의 기록이며 현재 상태는 다음 항목이 우선한다.
+- 현재 상태: PR #10까지 main에 병합됐고 개인 EKS 공개 EIP에서 Stage 1~4와
+  독립 Stage 5-A runtime/합성 노드 proof, 5-B 명령 주입/IRSA/S3 proof가 모두 통과했다.
+  아래 과거 "미적용" 문장은 당시 시점의 기록이며 이 기준점이 우선한다.
 
-### 현재 작업: 독립 Stage 5-A / 5-B 병행 구성
+### 2026-10-06 Falco 관측 계층 준비 및 general 설치
+
+- 블루팀 Falco만 별도 `falco-observe` namespace에 두고 general/escape worker를
+  서로 다른 Helm release로 관측하는 설정을 `deploy/falco/`에 추가했다. 참가자
+  경로, Argo, Stage 5 workload, IAM과 node group은 변경하지 않았다.
+- 공식 Falco chart 9.2.0/Falco 0.45.0, modern eBPF, least-privileged capability
+  mode와 container metadata plugin 0.7.4를 선택했다. rule 자동 추적, Falco
+  Talon/response action, 외부 HTTP 출력은 껐다. 기본 upstream rule 대신 lab
+  namespace의 process-start 규칙만 로드하고 JSON stdout에 namespace/Pod/container/
+  executable name만 기록한다. 명령 인자, 파일 경로, Flag 본문은 출력하지 않는다.
+- 현재 escape `t3.medium`의 allocatable은 1930m CPU/약 3.2Gi 메모리이고,
+  설치 전 Pod 요청 합계는 160m/32Mi였다. Falco 요청은 노드당 100m/512Mi,
+  상한은 500m/1Gi다. Metrics API가 없어 실제 사용량은 아직 측정하지 못했다.
+- general/escape 차트를 각각 Helm 9.2.0으로 로컬 렌더링했다. escape는 정확한
+  node selector와 taint toleration을 사용하고 CRI metadata socket은
+  `/run/containerd/containerd.sock` 하나만 설정한다. 블루팀 namespace는 ingress를
+  거부하며 DNS와 plugin 초기 다운로드용 HTTPS만 허용한다. 경계 테스트 3개 통과.
+- 사용자가 개인 EKS에서 `falco-observe` namespace와 NetworkPolicy를 적용하고
+  `falco-general` release를 설치했다. general worker 두 대에 Falco Pod가 각각
+  `1/1 Running`, 재시작 0이었고 modern BPF syscall source가 열렸다. 시작 직후
+  snapshot에는 두 Pod의 event drop 0, Falco RSS 약 89Mi가 보였으며 공개 EIP
+  `/readyz`는 ready였다. snapshot의 약 50% Falco CPU는 시작 후 2초 측정값이라
+  지속 사용량의 증거로 해석하지 않는다. AppArmor annotation deprecation 경고와
+  root PID namespace가 없어 BPF iterator를 비활성화했다는 로그가 있었지만
+  DaemonSet rollout과 source 시작은 성공했다.
+- 사용자가 `falco-escape` release도 개인 EKS에 설치했다. escape worker
+  `ip-10-42-5-251`의 Falco는 `1/1 Running`, 재시작 0이고 container plugin 0.7.4가
+  CRI socket 하나를 사용하며 modern BPF syscall source가 열렸다. 같은 시점에
+  general 두 Pod와 `runtime-maintenance`도 Ready, 공개 EIP `/readyz`도 ready였다.
+  시작 후 2초 snapshot의 escape RSS는 약 89Mi이고 event drop은 0이었다.
+- Falco 0.45는 사용자 규칙의 `evt.dir=<`가 항상 참이라며 deprecated 경고를 냈다.
+  조건을 제거하고 경계 테스트 3개와 general/escape Helm render를 다시 통과했다.
+  사용자가 수정된 값으로 두 release를 revision 2까지 upgrade했다. 공유된 Pod
+  목록은 rollout 중간 시점이라 모든 Falco Pod의 최종 Ready 상태까지는 확인하지
+  못했다. `runtime-maintenance` Deployment는 여전히 `1/1`이었다.
+- 운영자 전용 `python -c pass` 센서 검증에서 general Falco는
+  `runtime-builder`의 `process=python`을, escape Falco는
+  `runtime-maintenance`의 `process=python`을 각각 `Lab container process started`
+  JSON 경보로 기록했다. 경보에는 namespace/Pod/container/executable만 있고
+  명령 인자나 proof 내용은 없었다. 이는 센서 동작 증거이며 참가자 Stage 5
+  풀이 경보 검증은 아니다. Helm chart의 AppArmor annotation deprecation 경고는
+  남아 있으나 두 release upgrade는 성공했다.
+- 안정 상태의 자원·event drop 확인, 실제 5-A/5-B 공격 이벤트 관측은 남아 있다.
+  `kubectl logs`는 임시 확인 채널이며 장기 보존용 수집기는 미구현이다. 설치
+  순서와 rollback은 `deploy/falco/README.md`에 있다.
+- 후속 사용자 출력에서 revision 2의 `falco-general`과 `falco-escape` DaemonSet
+  rollout이 모두 성공했고 general 2개/escape 1개 Pod는 전부 `1/1 Running`, 재시작
+  0이었다. 현재 운영자는 `kubectl logs`로 Falco 경보를 조회할 수 있으나 Pod 교체,
+  노드 교체, kubelet 로그 회전 때문에 3일 조회 가능성은 보장되지 않는다.
+- CloudWatch 7일 보존용 수동 배포 설정을 `deploy/falco/cloudwatch-values.yaml`,
+  IAM 문서 생성기, NetworkPolicy, `CLOUDWATCH.md`에 준비했다. 공식 Fluent Bit
+  chart 0.58.2/앱 5.1.2의 DaemonSet이 Falco 컨테이너의 process-start 경보만
+  읽어 단일 log group으로 전송하도록 제한했다. 별도 Pod Identity role은 정확한
+  cluster/namespace/ServiceAccount만 신뢰하고 해당 log stream의 생성·쓰기만 허용한다.
+  Terraform은 수정하지 않았고 AWS log group/role/association 및 collector는 아직
+  EKS에 적용하지 않았다. Fluent Bit Helm 로컬 render와 Falco/CloudWatch 경계
+  테스트 6개가 통과했다. 기존 Pod Identity Agent의 세 노드 배치 확인이 선행돼야 한다.
+- 사용자 사전 점검에서 AWS 계정 `707605822656`, EKS cluster ARN/kube context가
+  `vuln-mlops-personal-lab`으로 일치했고 general 2대/escape 1대가 Ready였다.
+  `eks-pod-identity-agent` add-on은 Terraform 관리 태그를 가진 `ACTIVE`
+  `v1.4.0-eksbuild.3`였다. 공유된 출력에는 Agent Pod의 노드별 목록이 없어 escape
+  worker에 Agent가 실제 실행 중인지는 아직 확인하지 못했다. 수동 배포 안내서에서
+  add-on 생성·삭제 절차를 제거하고 `Environment=personal-lab` 태그로 정정했다.
+- 추가 출력에서 Pod Identity Agent DaemonSet은 `DESIRED/CURRENT/READY = 3/3/3`,
+  재시작 0이었고 general 2대와 escape 1대에 각각 `1/1 Running` Pod가 있었다.
+  따라서 CloudWatch 수집기 배포 전 Agent 노드 배치 조건은 충족됐다. 아직 log group,
+  IAM role, Pod Identity association, Fluent Bit는 생성·설치되지 않았다.
+- 이어서 사용자가 CloudWatch log group `/vuln-mlops/vuln-mlops-personal-lab/falco`를
+  7일 보존으로 생성하고 전용 IAM role/policy, Pod Identity association
+  `a-g1mtdbki4ngobpmvi`, collector NetworkPolicy와 `falco-cloudwatch` Helm revision 1을
+  수동 적용했다. 수집기 DaemonSet은 3/3 Ready, general 2대와 escape 1대에서 각각
+  `1/1 Running`, 재시작 0이었다. 새 log group 조회에 과거 Falco 로그를 읽어 전송한
+  runtime-builder·runtime-maintenance 및 Gitea process-start JSON 경보가 나타났다.
+  이는 CloudWatch 전송이 general/escape 양쪽에서 동작함을 확인하지만, 출력의
+  Stage 5 경보는 설치 전 05:10 UTC에 생성된 것이므로 설치 직후 probe 경보의 신규
+  수신 여부는 아직 분리 확인하지 못했다. 수집기 오류 로그와 두 Stage 5 Deployment의
+  최종 Ready 출력도 아직 공유되지 않았다.
+- 사용자는 후속 신규 probe/조회가 정상 동작한다고 확인했다. 공유된 Fluent Bit
+  출력에는 general 노드 수집기의 Falco log stream 생성 성공과 오류 없는 기동이
+  보였고, `runtime-builder`와 `runtime-maintenance` Deployment는 각각 `1/1 Ready`였다.
+  신규 CloudWatch 조회 이벤트 본문은 공유되지 않았으므로 그 개별 시각/내용은
+  독립 증거로 기록하지 않는다. 현재 관측 계층은 운영 중이며 차단 기능은 없다.
+- 참가자 EIP 허용 IP를 추가하려고 사용자가 `participant_access_cidrs`에
+  `134.231.169.94/32`를 더했다. Terraform plan은 `modelgate_participant_access_cidrs`
+  output만 변경했고 apply는 `0 added, 0 changed, 0 destroyed`로 성공했다.
+  이어 실행한 `manage.sh deploy`와 `status`는 모두 EKS Kubernetes API의
+  `13.125.112.89:443` 접속 타임아웃으로 실패했다. 따라서 새 IP의 Service
+  `loadBalancerSourceRanges`/NetworkPolicy 적용 및 EIP 실제 접속은 미확인이다.
+  운영자 현재 공인 IP와 EKS `publicAccessCidrs`를 대조한 뒤 재시도해야 한다.
+- 카페에서 확인한 운영자 공인 IP는 `116.121.12.50`, 실제 EKS API 허용 CIDR은
+  집 IP `1.236.20.205/32`뿐이었다. 두 번째 Terraform plan/apply는 카페 IP를
+  `participant_access_cidrs`에 잘못 추가해 output만 다시 변경했고 AWS 리소스 변경은
+  0건이었다. 로컬 무시 파일 `infra/terraform/personal.auto.tfvars`에서 카페 IP를
+  `participant_access_cidrs`에서 제거하고 `public_access_cidrs`에 집 IP와 함께
+  추가했다. 이 수정은 아직 Terraform plan/apply 또는 EKS API에 반영되지 않았다.
+- 사용자는 `134.231.169.94/32`가 멘토 IP로 운영자 EKS API 접근과 참가자 EIP
+  접근이 모두 필요하다고 정정했다. 로컬 tfvars에서 이 IP를 두 CIDR 목록에 모두
+  포함시켰다. 카페 IP `116.121.12.50/32`는 배포용 임시 EKS API CIDR에만 두고
+  참가자 목록에서는 제외했다. 대상 지정 Terraform plan/apply로 EKS cluster의
+  `publicAccessCidrs`에 집·카페·멘토 IP가 모두 반영됐고 AWS 조회에서 cluster
+  `ACTIVE`를 확인했다. 이 plan은 EKS cluster 1건만 변경하여 전체 plan에 나타난
+  애드온/OIDC 변경을 적용하지 않았다. 참가자 CIDR output에는 이전 apply의 카페 IP가
+  남아 있었으나 `refresh-only` plan/apply로 그 IP만 output에서 제거했다. 실제 AWS
+  리소스 변경은 0건이었다. 이어 `manage.sh deploy`와 `status`가 성공했고 ModelGate
+  NLB의 고정 EIP는 `3.35.2.114`, target health는 healthy, Load Balancer Controller는
+  `1/1 Ready`였다. 실제 Kubernetes Service `loadBalancerSourceRanges`와 ModelGate
+  NetworkPolicy 양쪽에 멘토 `134.231.169.94/32`가 포함되고 카페
+  `116.121.12.50/32`는 제외된 것을 조회했다. 멘토 현장 네트워크에서의 HTTP 접속은
+  아직 직접 확인하지 않았다.
+
+### 2026-10-06 병행 Stage 5 실제 검증과 운영진 문서
+
+- PR #10의 PR check 3개와 병합 후 main CI check 3개가 성공했다. 현재 게시 이미지의
+  OCI index digest는 `sha256:8c97af1b9aae5dd8f182f30c11a1a7b5c2ac9cd5b94a91257fa8f6ed56e5a0a4`다.
+- 사용자가 이 digest로 개인 EKS의 IAM 병행 프로필을 배포했다. Argo baseline은
+  `80889134f3eb15529629062941f26df86a9968db`에서 `Synced/Healthy`였고,
+  general worker의 runtime-builder와 escape worker의 runtime-maintenance가 Ready였다.
+  builder→agent `/healthz`는 HTTP 200, 공개 EIP `/readyz`는 ready였다.
+- 새 공개 foothold에서 Stage 2 Job과 Stage 3 credential 교환이 성공했다.
+  Stage 4 Git commit `533820aeef879422ba8735f7724a22b78fedbe1c`가 Argo
+  `Synced/Healthy`로 반영됐고 status에 Stage 4 proof, `runtime_relay`,
+  `builder_endpoint`가 함께 표시됐다.
+- 5-A의 body 없는 공개 POST는 고정 CRI 작업과 `FLAG{stage_5_node_placeholder}`를
+  반환했다. `{"command":"id"}` body를 보낸 요청은 HTTP 400으로 거부됐다.
+  5-B는 proof 전 404, build 명령 주입 후 `completed`, 예상 계정과
+  `assumed-role/...runtime-builder/...` ARN 및 `FLAG{stage_5_iam_placeholder}`를
+  반환했다. 이 결과는 임의 노드 장악이나 CSI 경로를 뜻하지 않는다.
+- 이 수동 풀이 이후 사용자가 `reset --stage5-iam`을 실행했다. 공유된 출력에서
+  Argo runtime-builder는 baseline revision `290827d73848a9a6235ca3d537ea4b1fd363cfe0`의
+  `Synced/Healthy`, runtime-builder와 runtime-maintenance는 각각 `1/1` Ready였다.
+  공유된 출력에는 개별 Job·proof 삭제 내역이 없어 그 부분은 독립 확인으로 기록하지 않는다.
+- 멘토·운영진용 현재 구성 소개서 `MENTOR_LAB_OVERVIEW.md`와 단계별 PoC 답안지
+  `MENTOR_STAGE_POC.md`를 추가했다. 팀원의 블라인드 단서 발견성, clean destroy 후
+  두 번째 apply, 팀 계정 이전, Stage 6은 여전히 미검증/미구현이다.
+- 팀원에게 별도로 전달할 시작 문서 `PARTICIPANT_START_GUIDE.md`를 추가했다.
+  EIP, 접속 확인, 첫 조사 지점과 기록 방법만 담고 정답·Flag 값은 제외했다.
+- 운영진 PoC의 Stage 1-A/1-B 설명을 실제 `poc/ssrf_canary.py`와
+  `poc/rce_marker.py`의 요청 순서, 출력값, 자동화 범위에 맞춰 정리했다.
+
+### 이전 작업 기록: 독립 Stage 5-A / 5-B 병행 구성
 
 - 사용자가 두 최종 문제를 같은 EKS에서 독립적으로 제공하도록 범위를 확장했다.
   현재 배포된 5-B는 general worker의 `runtime-builder` 명령 주입→IRSA→합성

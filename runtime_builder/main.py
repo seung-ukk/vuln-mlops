@@ -13,6 +13,7 @@ from fastapi import FastAPI, Header, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from runtime_builder.aws_proof import PROOF_PATH, PROOF_PATTERN
+from runtime_builder.node_result import read_node_result
 
 
 app = FastAPI(title="Runtime Builder", version="0.1.0")
@@ -34,6 +35,20 @@ def legacy_build_command(source_ref: str) -> str:
 @app.get("/healthz")
 def healthz() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/node/result")
+def node_result(x_modelgate_relay: str | None = Header(default=None)) -> dict[str, str]:
+    if x_modelgate_relay != RELAY_HEADER:
+        raise HTTPException(status_code=403, detail="ModelGate relay is required")
+    if os.environ.get("STAGE5_MODE") != "hostpath":
+        raise HTTPException(status_code=409, detail="Host maintenance profile is disabled")
+    try:
+        return read_node_result()
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="No host result has been observed") from exc
+    except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
+        raise HTTPException(status_code=502, detail="Host result is invalid") from exc
 
 
 @app.get("/build/info")
