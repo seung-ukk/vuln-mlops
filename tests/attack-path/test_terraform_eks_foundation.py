@@ -14,6 +14,14 @@ def terraform_text() -> str:
     return "\n".join(path.read_text(encoding="utf-8") for path in sorted(TF.glob("*.tf")))
 
 
+def test_eks_public_api_includes_participant_and_operator_cidrs() -> None:
+    main_text = (TF / "main.tf").read_text(encoding="utf-8")
+    assert (
+        "endpoint_public_access_cidrs             = "
+        "distinct(concat(var.public_access_cidrs, var.participant_access_cidrs))"
+    ) in main_text
+
+
 def coredns_policy() -> dict:
     path = ROOT / "deploy" / "eks-lab" / "stage-03" / "coredns-network-policy.yaml"
     return yaml.safe_load(path.read_text(encoding="utf-8"))

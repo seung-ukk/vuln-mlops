@@ -115,7 +115,7 @@ module "eks" {
   enable_irsa                              = true
   endpoint_private_access                  = true
   endpoint_public_access                   = true
-  endpoint_public_access_cidrs             = var.public_access_cidrs
+  endpoint_public_access_cidrs             = distinct(concat(var.public_access_cidrs, var.participant_access_cidrs))
   deletion_protection                      = var.deletion_protection
   enabled_log_types                        = ["api", "audit", "authenticator", "controllerManager", "scheduler"]
   cloudwatch_log_group_retention_in_days   = var.log_retention_days
@@ -264,6 +264,12 @@ module "eks" {
       }
 
       tags = {
+        "lab.vuln-mlops/node-role" = "escape"
+      }
+
+      # The IAM CreateTags guard checks this tag on the EC2 instance. The
+      # module's launch template tag specifications apply it at launch.
+      launch_template_tags = {
         "lab.vuln-mlops/node-role" = "escape"
       }
     }

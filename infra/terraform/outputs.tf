@@ -84,7 +84,7 @@ output "runtime_proof_bucket" {
 }
 
 output "runtime_proof_object_key" {
-  description = "Synthetic proof object key for the legacy Pod IRSA and opt-in node IAM profiles."
+  description = "Synthetic proof object key for the legacy Pod IRSA and 2026-10-07 node IAM profiles."
   value       = local.runtime_proof_object_key
 }
 
@@ -94,7 +94,7 @@ output "escape_node_role_arn" {
 }
 
 output "hostpath_node_capstone_enabled" {
-  description = "Whether the escape node role has the single-object synthetic S3 permission."
+  description = "Whether the escape node role has the dedicated EC2 proof-tag permission."
   value       = var.enable_hostpath_node_capstone
 }
 
@@ -104,6 +104,11 @@ output "node_security_group_ids" {
     general = aws_security_group.general_nodes.id
     escape  = aws_security_group.escape_nodes.id
   }
+}
+
+output "attacker_receiver_security_group_id" {
+  description = "Attach this opt-in group to a manually launched no-IAM attacker EC2 in the lab VPC."
+  value       = try(aws_security_group.attacker_receiver[0].id, null)
 }
 
 output "cluster_operator_role_arn" {

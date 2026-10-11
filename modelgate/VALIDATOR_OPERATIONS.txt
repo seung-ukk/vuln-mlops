@@ -1,0 +1,12 @@
+ModelGate validator operations note
+
+Compatibility checks run in the validator container. ServiceAccount access is
+limited to the observability-lab Pod inventory and operational Pod logs.
+The internal Grafana service is grafana.observability-lab.svc:3000. Its default
+Prometheus datasource tracks delivery synchronization. The operations-log
+workload keeps a short debug trail for that synchronization.
+
+Historical on-call checks are under /opt/modelgate/ops/monitoring-history.txt.
+
+Runtime application changes are delivered through the internal Git service.
+Only the runtime-builder directory of the lab-runtime branch is reconciled.

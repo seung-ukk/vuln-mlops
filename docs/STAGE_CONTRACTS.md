@@ -1,9 +1,19 @@
 # Stage Contracts
 
+## 2026-10-08 참가자 체인 계약
+
+새 개발 목표의 단일 참가자 경로와 증거 기준은
+`ATTACK_CHAIN_CONTRACT.md`를 따른다. 아래 Stage 1~5 계약은 2026-10-07
+배포 프로필의 기록이며, 새 프로필의 검증 완료를 뜻하지 않는다. 현재
+라이브 상태는 `STATUS.md` 상단에서 확인한다.
+새 프로필의 최종 AWS 작업은 escape EC2 노드에 참가자 증명 태그를 쓰는
+`ec2:CreateTags`다. 아래 S3 `GetObject` 계약은 이전 프로필의 기록이다.
+
 ## 2026-10-07 목표 계약: GitOps → hostPath → Node IAM
 
-이 절은 새로 승인된 목표 경로의 계약이다. 아래의 5-A/5-B 및 socket 계약은
-현재 배포된 이전 프로필의 검증 기록이며 새 경로의 성공으로 간주하지 않는다.
+이 절은 2026-10-07 개인 EKS에서 검증한 현재 경로의 계약이다. 아래의
+5-A/5-B 및 socket 계약은 이전 프로필의 검증 기록이며 현재 배포 경로의
+성공 조건으로 사용하지 않는다. 라이브 상태는 `STATUS.md` 상단을 따른다.
 
 ### Stage 1~3 인계
 
@@ -95,13 +105,14 @@
   agent의 ServiceAccount token·IRSA, 일반 worker의 socket, ModelGate 및 다른
   Pod의 agent 직접 접근을 거부한다. Builder baseline의 내부 maintenance 요청도
   거부한다. Agent는 고정 Service·NetworkPolicy·admission shape를 사용한다.
-- Status: 로컬 구현과 테스트 단계이며 현재 EKS 배포·공개 참가자 PoC는 아직 없다.
+- Historical status: 이 문장이 쓰인 당시에는 로컬 구현과 테스트 단계였다.
+  이후 5-A는 공개 참가자 경로에서 검증됐지만 현재 hostPath 프로필에서 제거됐다.
 
 ## Stage 5-B 계약: Runtime Builder → IRSA → S3
 
-이 계약은 현재 개인 EKS에 적용되어 공개 EIP 참가자 경로로 검증됐다. 5-A는
-같은 EKS에서 독립 에이전트로 추가할 예정이며, 아래 기존 socket Stage 5
-계약은 별도 프로필의 역사적 구현이다.
+이 계약은 이전 개인 EKS 프로필의 공개 EIP 참가자 경로에서 검증됐다.
+현재 EKS에서는 hostPath 경로로 교체됐으며 아래 기존 socket Stage 5
+계약도 별도 프로필의 역사적 구현이다.
 
 - Input: Stage 3의 제한된 Git credential과 Stage 4의 Argo `Synced/Healthy` 증거.
 - Intended: Git의 `runtime-builder/` 경로에서 기존 앱의 legacy build profile을

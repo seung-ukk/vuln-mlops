@@ -5,8 +5,8 @@ This directory creates only the AWS foundation for Stages 1-5:
 - one dedicated VPC across two or three availability zones;
 - public subnets for a single cost-conscious NAT gateway and later ingress;
 - private subnets for every worker;
-- an EKS control plane with private access and public access restricted to operator
-  `/32` addresses;
+- an EKS control plane with private access and public access restricted to the
+  configured operator and participant `/32` addresses;
 - API-only EKS Access Entries and a separate cluster operator role;
 - managed CoreDNS, kube-proxy, VPC CNI, and Pod Identity Agent add-ons;
 - VPC CNI NetworkPolicy enforcement in strict mode;
@@ -14,15 +14,17 @@ This directory creates only the AWS foundation for Stages 1-5:
   groups;
 - all five EKS control-plane log types retained in CloudWatch.
 
-It also creates a private synthetic S3 proof bucket and a narrowly scoped
-runtime-builder IRSA role for the proposed IAM capstone. Terraform does not
-store or upload the proof object's body. See
-`docs/RUNTIME_BUILDER_IRSA_PROBE.md` before applying this change to an existing
-cluster. CSI permissions, production storage, DNS, certificates, and scoring
-services remain out of scope.
+It retains the private synthetic S3 proof bucket and runtime-builder IRSA
+resources for the earlier profile; Terraform does not store or upload the
+proof object's body. The current participant capstone opts the dedicated
+escape worker role into one `ec2:CreateTags` permission: only an EC2 instance
+already tagged `lab.vuln-mlops/node-role=escape` can receive the
+`lab.vuln-mlops/proof` marker. The module's launch template applies the guard
+tag to new EC2 instances. CSI permissions, production storage, DNS,
+certificates, and scoring services remain out of scope.
 
 The escape worker accepts control-plane traffic on the reviewed EKS node ports and
-TCP 8080 from the general worker security group for the fixed Stage 5 runtime relay.
+TCP 8080 from the general worker security group for the earlier runtime relay.
 The relay Pod also requires the matching namespace- and Pod-scoped NetworkPolicies.
 It cannot initiate arbitrary traffic or connect to the general workers except for
 TCP/UDP DNS on port 53; HTTPS egress remains available for bootstrap, EKS, registry,
@@ -81,8 +83,11 @@ Copy the example to an ignored, account-specific file and replace both placehold
 cp personal.tfvars.example personal.auto.tfvars
 ```
 
-The public endpoint input accepts only IPv4 `/32` values and explicitly rejects
-`0.0.0.0/0`. Verify the plan before any apply:
+The public endpoint inputs accept only IPv4 `/32` values and explicitly reject
+`0.0.0.0/0`. Participant CIDRs also reach the EKS API endpoint, but an IP on
+this list does not grant Kubernetes access: each participant still needs an
+authenticated IAM principal and an EKS access entry with appropriate RBAC.
+Verify the plan before any apply:
 
 ```bash
 terraform plan -out=personal.tfplan

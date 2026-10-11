@@ -1,0 +1,35 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: delivery-cluster
+  namespace: delivery-lab
+  labels: {argocd.argoproj.io/secret-type: cluster}
+type: Opaque
+stringData:
+  name: delivery-in-cluster
+  server: https://kubernetes.default.svc
+  namespaces: delivery-lab,runtime-lab
+  config: '{"tlsClientConfig":{"insecure":false}}'
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata: {name: runtime-builder, namespace: delivery-lab}
+spec:
+  sourceRepos: ["http://gitea.delivery-lab.svc:3000/lab-git-writer/vuln-mlops-gitops.git"]
+  destinations: [{server: "https://kubernetes.default.svc", namespace: runtime-lab}]
+  namespaceResourceWhitelist: [{group: apps, kind: Deployment}]
+  clusterResourceWhitelist: []
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata: {name: runtime-builder, namespace: delivery-lab}
+spec:
+  project: runtime-builder
+  source:
+    repoURL: http://gitea.delivery-lab.svc:3000/lab-git-writer/vuln-mlops-gitops.git
+    targetRevision: lab-runtime
+    path: runtime-builder
+  destination: {server: "https://kubernetes.default.svc", namespace: runtime-lab}
+  syncPolicy:
+    automated: {prune: false, selfHeal: true, allowEmpty: false}
+    syncOptions: ["CreateNamespace=false", "ServerSideApply=true"]

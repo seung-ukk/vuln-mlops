@@ -1,12 +1,369 @@
 # Project Status
 
-마지막 갱신: 2026-10-07 (Asia/Seoul)
+마지막 갱신: 2026-10-11 (Asia/Seoul)
 
 이 문서는 새 Codex 작업과 팀원이 현재 상태를 빠르게 파악하기 위한 인계 문서다.
 작업을 시작할 때 `LAB_PLAN.md`, `STAGE_CONTRACTS.md`, 이 문서를 순서대로 읽는다.
 
+## 2026-10-11 참가자·운영자 IP 추가
+
+- 사용자가 개인 Terraform 변수의 운영자·참가자 목록에 `222.235.10.156/32`를 추가했다. 공유한 Terraform 계획은 공격자 EC2의 TCP 22 규칙 1개 생성, EKS 공개 API CIDR 제자리 변경 1개, 삭제 0개였고 적용 결과도 1개 추가·1개 변경·0개 삭제였다.
+- 공개 `modelgate-public` Service의 `loadBalancerSourceRanges`와 동명 NetworkPolicy ingress에서 같은 CIDR을 확인했다. NetworkPolicy에 중복된 항목 1개를 제거한 뒤 목록에는 1개만 남았다. 새 IP에서의 실제 HTTP·SSH·EKS 접속 시험 결과는 아직 공유되지 않았다.
+- 실제 IP 목록이 있는 `infra/terraform/personal.auto.tfvars`는 Git에서 무시되는 개인 계정 입력 파일이다. 저장소의 Terraform 코드와 문서는 이 입력을 사용하는 구조를 유지한다.
+
+## 2026-10-09 현재 접속 IP `182.220.186.98` 추가
+
+- WSL의 실제 공인 IP가 `182.220.186.98`임을 확인하고 개인 Terraform 변수의 운영자 `public_access_cidrs`와 참가자 `participant_access_cidrs`에 `182.220.186.98/32`를 추가했다. 대상 계획은 전용 공격자 EC2의 TCP 22 인바운드 규칙 1개 생성과 EKS 공개 API CIDR의 제자리 변경 1개뿐이었고 그대로 적용했다. AWS는 EKS 허용 CIDR과 EC2 보안 그룹 규칙 `sgr-0129ad0368ef148c9`를 반환했다.
+- `modelgate-lab/modelgate-public` Service의 `loadBalancerSourceRanges`와 같은 이름의 NetworkPolicy ingress에도 새 `/32`를 추가했다. 현재 WSL에서 EKS 조회, 공개 `http://3.35.2.114/readyz`의 `ready`, 전용 EC2 `3.35.13.221`의 SSH hostname 조회를 확인했다. ModelGate Deployment는 1/1 Ready였다.
+- 대상 Terraform 적용 후 `modelgate_participant_access_cidrs` 출력이 이전 목록으로 남아 있어, 원격 리소스를 바꾸지 않는 refresh-only 계획·적용으로 출력 상태를 갱신했다. 새 `/32`가 출력에 포함돼 다음 공개 Service 재배포에서도 유지된다. Terraform `validate`, `git diff --check`가 통과했다. 참가자용 새 AWS IAM 신원이나 EKS Access Entry는 추가하지 않았다.
+
+## 2026-10-09 전용 리스너 EC2의 TCP 포트 자유화
+
+- Terraform이 관리하는 공격자 EC2 보안 그룹 `sg-0adf4e68c6f29dd82`의 기존 단일 4444 인바운드 규칙을 TCP 1–65535로 변경했다. 소스는 일반 워커 보안 그룹 `sg-044856f789e3ec830`으로 유지했다. 대상 계획은 0 추가·1 제자리 변경·0 삭제였으며 해당 규칙만 적용했다. AWS `DescribeSecurityGroupRules`에서 실제 포트 범위와 소스 보안 그룹을 확인했다.
+- `modelgate-lab/validator-attacker-receiver` NetworkPolicy는 전용 EC2 사설 IP `10.42.143.106/32`에 대한 TCP 모든 포트 송신으로 변경했다. 배포 준비 스크립트도 이 정책을 재적용하도록 수정했고, 기존 리스너 포트 인자는 호출 호환성을 위해 남겼다. Kubernetes API에서 적용된 정책을 확인했다.
+- Terraform `fmt -check`·`validate`, setup Bash 구문 검사, NetworkPolicy 서버 측 사전 검증, `git diff --check`가 통과했다. 실제 validator Pod에서 EC2의 TCP 5555 임시 리스너로 접속했고 EC2가 `port-test`를 수신했다. 팀원 SSH 허용 IP, 공개 ModelGate 접근 목록, 다른 Pod/노드의 네트워크 정책은 변경하지 않았다.
+
+## 2026-10-09 현재 접속 IP 추가
+
+- 현재 접속 IP `121.167.58.146/32`를 개인 Terraform 변수의 운영자 `public_access_cidrs`와 참가자 `participant_access_cidrs`에 추가했다. 대상 계획은 EKS 공개 API CIDR 1개 추가와 공격자 EC2 SSH 규칙 1개 추가만 포함했다. EKS 변경은 적용됐고 AWS EKS는 이 CIDR을 반환한다. SSH 규칙은 이미 AWS 보안 그룹 `sg-0adf4e68c6f29dd82`에 수동 생성돼 있어 중복 생성 오류가 났다. 기존 규칙 `sgr-0dd0b5789a156a59c`를 Terraform 상태에 import하고, 설명·태그만 기준값으로 맞췄다.
+- `modelgate-lab/modelgate-public` Service의 `loadBalancerSourceRanges`와 동명 NetworkPolicy의 ingress `ipBlock`에도 같은 `/32`를 추가했다. 현재 WSL에서 `kubectl` 조회, 공개 `http://3.35.2.114/readyz`의 `ready` 응답, 기존 PEM으로 실습용 EC2 `3.35.13.221`의 SSH hostname 조회가 모두 성공했다. Terraform `validate`도 통과했다. 전체 Terraform 변경은 적용하지 않았고 이 접속 경로에 필요한 대상만 반영했다.
+
+## 2026-10-08 참가자 경로 실측 (현재 상태 우선)
+
+### 참가자 PoC 후 기준 상태 복원 (2026-10-08)
+
+- EKS 공개 API 접근 CIDR을 `distinct(concat(var.public_access_cidrs, var.participant_access_cidrs))`로 바꿨다. Terraform 전체 계획은 add-on/OIDC 갱신을 포함한 6개 변경이어서 적용하지 않았고, EKS 클러스터만 대상으로 한 계획(0 추가, 1 제자리 변경, 0 삭제)을 적용했다. AWS `DescribeCluster`에서 상태 `ACTIVE`, 허용 `/32` 20개, 요청된 참가자 IP 14개 모두 포함됨을 확인했다. 이 변경은 네트워크 연결만 허용한다. 참가자 IAM 신원과 EKS access entry가 없어 `kubectl`/자율 reset 권한은 아직 없다. 개인 계정은 AWS Organizations 미사용, 서울 리전 IAM Identity Center 인스턴스 없음으로 확인했다. Identity Center access portal 기반 계정 권한을 쓰려면 조직 인스턴스 및 팀원 신원 구성이 선행되어야 한다.
+- 실습용 공격자 EC2의 SSH 접근 목록을 재확인했다. 요청한 14개 공인 IP는 모두 `infra/terraform/personal.auto.tfvars`의 `participant_access_cidrs`에 이미 `/32`로 있으며, AWS 보안 그룹 `sg-0adf4e68c6f29dd82`의 TCP 22 인바운드에도 모두 존재한다. 이 그룹은 실행 중인 공격자 EC2 `i-030d4a51c1ac858ad`에 연결돼 있다. 기존 허용 IP까지 SSH 규칙은 총 20개이며, 당시에는 Terraform이나 AWS 규칙을 변경하지 않았다. 이후 EKS 공개 API에는 운영자 CIDR과 이 참가자 CIDR의 합집합을 적용했다.
+- 다음 참가자 회차용 운영자 스크립트 `deploy/participant-chain/reset-after-participant.sh`를 저장했다. `setup.sh`로 먼저 안전한 기준 Deployment를 복원한 뒤, `emptyDir` Gitea를 재생성해 이전 Git 이력을 비우고 실습 Git credential을 교체한다. ModelGate·operations-log 재시작과 전용 escape 노드 교체, Argo·Pod·EC2 태그·공개 readiness 검사를 수행하도록 구성했다. **스크립트 전체의 실제 EKS 실행은 아직 하지 않았다.** Git Bash `bash -n`과 파일 공백 검사만 통과했으며 현재 라이브 복원 상태는 아래 실측 기록을 따른다.
+- `deploy/participant-chain/setup.sh`를 다시 실행해 Gitea `lab-runtime`의 기준 Deployment를 새 commit `0ee4a1ecbbd9da5f803ba37d8b85434682780457`로 복원했다. live `runtime-lab/runtime-builder`의 Pod UID/GID는 10001이고 `/host-maintenance`, `/node-evidence` mount는 모두 읽기 전용이다. Argo `delivery-lab/runtime-builder`는 같은 revision에서 `Synced/Healthy`다.
+- 공격에 사용한 escape 노드 `i-0d0acd7e27a2b2a8c`를 drain하고 Auto Scaling Group에서 종료 요청했다. 대체 노드 `ip-10-42-23-57.ap-northeast-2.compute.internal` (`i-0efa1cb0fb408ecd7`)은 Ready이고 기준 runtime-builder Pod는 그 노드에서 1/1 Running이다. 노드 목록에는 새 escape 노드만 남았으며 새 EC2의 `lab.vuln-mlops/proof` 태그 조회는 빈 목록 `[]`였다. 새 노드의 호스트 기본 task와 evidence 파일 부재는 별도 조회하지 않았다.
+- ModelGate Deployment를 재시작해 기존 validator reverse shell 세션을 종료했고 공개 `/readyz`는 `ready`를 반환했다. Git 이력에는 참가자 공격 commit이 남고 기존 배포별 Git credential은 재사용되므로, 이 복원은 완전한 독립 참가자별 자격증명·이력 초기화가 아니다. 다음 참가자에게는 기준 revision과 새 노드를 사용하되 필요하면 credential 교체와 Git 이력 정리를 별도로 수행한다.
+
+### 참가자 셸 재검증 완료 (2026-10-08)
+
+- 공개 ModelGate의 MLflow 모델 업로드·등록에서 직접 구성한 statsmodels 역직렬화 payload로 공격자 EC2(`10.42.143.106:4444`)에 validator UID 10001 reverse shell을 얻었다. 정상 모델 검증과 실패 모델의 `ModuleNotFoundError`도 별도로 관찰했다. statsmodels flavor 선택은 공개 응답에서 유추한 결론이 아니라 참가자에게 제공된 취약점 전제를 바탕으로 한 가설이다. 셸의 운영 메모 → Grafana datasource UID 및 `delivery_sync_info` → `operations-log` Pod 조회·로그 → 배포별 제한 Git token → 내부 Gitea clone을 참가자 신원으로 진행했다. 운영자 조회 결과를 참가자 풀이의 단서로 사용하지 않았다.
+- Gitea baseline `a0cb6c8e556c7c6a9da328d12701db9e55f28bc0`에서 참가자가 `runtime-builder/deployment.yaml`의 UID/GID 0, maintenance mount 쓰기 허용, 고정 host task 작성·정상 HTTP 프로세스 시작을 직접 구성했다. 참가자 셸에서 commit `fcc44540580cef326ca25fd9cd199cc29354b4ab`을 `lab-runtime`에 push했고 Argo `delivery-lab/runtime-builder`는 같은 revision에서 `Synced/Healthy`, 새 Pod는 전용 escape 노드 `ip-10-42-30-220.ap-northeast-2.compute.internal`에서 1/1 Running이었다. 참가자 권한의 Pod 로그는 호스트 `root`/UID 0, 해당 노드 hostname, `vuln-mlops-escape-node` assumed-role ARN 및 `tagged i-0d0acd7e27a2b2a8c`를 보였다. 별도 운영자 검증에서 EC2 `lab.vuln-mlops/proof=lab-20261008b`와 동일 노드 역할의 CloudTrail `CreateTags` 이벤트(`2026-10-08T06:50:27Z`, `errorCode=null`)를 확인했다. Pod 로그만으로는 독립 증명이 아니며 EC2 태그·CloudTrail 대조로 최종 AWS 작업을 확인했다.
+- 이 참가자 검증 당시에는 공격 후 상태였으나 현재 복원 상태는 바로 위 절을 따른다. 이번 회차에서 reverse shell의 `ncat` 중계는 여러 줄 붙여넣기와 Ctrl+D 처리가 불안정해 한 줄 명령으로 진행했다. 완전한 블라인드 MLflow 취약점 발견성이나 대화형 노드 셸 획득은 검증하지 않았다.
+
+### 참가자 단서 보완 진행 (2026-10-08)
+
+- 폐기된 `stage-04-gitops/runtime-builder` Application은 삭제됐고 `stage-05-runtime/runtime-builder` Deployment는 0 replica로 줄였다. 이전 escape 노드 `i-02ca356d1262414eb`는 사용자 요청으로 이미 종료되어 drain·ASG terminate 재시도 시 대상이 없었다. ASG 활동과 EC2 상태로 종료를 확인했고 새 escape 노드 `ip-10-42-30-220.ap-northeast-2.compute.internal` (`i-0d0acd7e27a2b2a8c`)은 Ready, desired capacity 1의 InService/Healthy다. 새 노드의 proof 태그는 없고, 현재 baseline runtime-builder 및 Falco escape/CloudWatch Pod가 새 노드에서 1/1 Running이다. baseline Pod UID 10001에서 `/host-maintenance/task.sh`와 `/node-evidence` 읽기는 Permission denied였으며, 호스트 파일 내용 자체는 이 회차에서 별도 조회하지 않았다.
+
+- 운영자 수동 sync 재시도 뒤 Gitea baseline `a0cb6c8e556c7c6a9da328d12701db9e55f28bc0`가 현재 `delivery-lab/runtime-builder` Argo Application에서 `Synced/Healthy`가 됐다. live `runtime-lab/runtime-builder`는 UID/GID 10001, `MAINTENANCE_PROFILE=hostpath`, maintenance/evidence mount 모두 readOnly이며 Pod 1/1 Ready다. 아직 같은 escape 노드 `i-02ca356d1262414eb`에서 실행 중이므로 노드 교체는 남았다. 그 노드에는 폐기된 `stage-05-runtime/runtime-builder` Pod와 `stage-04-gitops/runtime-builder` Argo Application도 실행 중임을 확인했다. 다음 참가자 검증 전 옛 프로필을 중지하고 공격 노드를 교체해야 한다.
+
+- 재실행한 준비 스크립트가 Gitea baseline `a0cb6c8e556c7c6a9da328d12701db9e55f28bc0`를 push했으나 Argo는 `OutOfSync/Healthy`와 SyncError를 보였다. 새 admission 정책의 고정 환경변수 규칙이 이전 live Deployment의 `STAGE5_MODE`와 새 `MAINTENANCE_PROFILE` 전환에서 거부했다. 준비 스크립트에 기존 `STAGE5_MODE`가 있을 때만 제거하는 1회성 마이그레이션을 추가했다. 스크립트 문법과 `git diff --check`는 통과했으며, 현재 실행 중인 구버전 스크립트에는 수정이 반영되지 않으므로 운영자 명령으로 live 환경변수를 제거하고 Argo 재동기화를 확인해야 한다.
+
+- 다음 참가자용 `deploy/participant-chain/setup.sh` 재실행에서 Argo가 소유한 `runtime-builder` Deployment의 command, maintenance mount readOnly, UID/GID 필드를 운영자 `kubectl apply --server-side -k`가 다시 소유하려 해 충돌했다. 이 실행은 Gitea baseline commit 이전에 종료됐으므로 현재 공격 revision은 유지된다. 준비 스크립트는 runtime 보조 리소스를 개별 적용하고 Deployment가 없을 때에만 최초 base를 생성하도록 수정했다. `bash -n`과 `git diff --check`는 통과했으며, 수정본의 실제 재실행은 아직 필요하다.
+
+- Terraform 공격자 수신 EC2 보안 그룹은 이전에 `-var='enable_attacker_receiver_security_group=true'`로 적용됐으나 로컬 auto tfvars에 opt-in이 없어 일반 계획에서 23개 삭제가 보였다. `infra/terraform/personal.auto.tfvars`에 이 opt-in을 명시한 뒤 전체 `terraform plan`을 다시 실행하자 **No changes**였다. `terraform validate`도 통과했다. 실제 보안 그룹 `sg-0adf4e68c6f29dd82`는 공격자 EC2 `i-030d4a51c1ac858ad`에 붙어 있고, 현재 운영자 IP `115.91.25.180/32`의 SSH 22와 general-node SG `sg-044856f789e3ec830`에서 listener 4444로의 접근 규칙을 확인했다. 이 계획에는 적용할 변경이 없으므로 `terraform apply`를 실행하지 않았다.
+
+- 작업 장소 변경으로 운영자 WSL 공인 IP가 `115.91.25.180`이 됐다. 이 IP는 참가자 CIDR에는 있었지만 EKS API의 `public_access_cidrs`에는 없어 `kubectl`이 시간 초과됐다. 로컬 `infra/terraform/personal.auto.tfvars`의 운영자 목록에 `115.91.25.180/32`를 추가하고 EKS 클러스터만 대상으로 한 Terraform 계획(0 추가, 1 제자리 변경, 0 삭제)을 적용했다. AWS `DescribeCluster`에서 CIDR 추가를 확인했고, 같은 WSL의 `kubectl`로 `delivery-lab/runtime-builder` Application이 `Synced/Healthy`임을 확인했다. 일반 Terraform 계획에는 이 작업과 무관한 23개 삭제 등이 잡혀 있었으므로 적용하지 않았다.
+
+- 정상 statsmodels MLflow 모델을 공개 API로 업로드·등록·자동 검증했다. 업로드와 등록은 각각 HTTP 201, 검증은 `succeeded`였다. 앞서 실행한 역직렬화 payload도 Job 상태가 `succeeded`였다. 두 요청의 HTTP 결과가 다르다는 가정은 성립하지 않으며, RCE는 validator에서 공격자 EC2로 연결된 셸과 UID 10001 실행 문맥으로 판단한다.
+- 현재 validator ServiceAccount token을 사용하는 in-cluster kubeconfig와 `kubectl` v1.36.4를 임시로 Pod에 복사해 사전 검사했다. 해당 신원으로 Argo `runtime-builder` Application 상태, `runtime-lab` Pod 목록과 로그 조회가 성공했다. 운영자 kubeconfig는 Pod에 넣지 않았다. 이 `kubectl`과 전용 kubeconfig, 관측 지표 이름·Grafana UID 프록시 경로가 적힌 운영 기록을 포함한 OCI index `ghcr.io/seung-ukk/vuln-mlops@sha256:e20da314cfcd7bfa8759e919156f544a43eb37b7ce143604ea1663d9d1efded4`를 게시하고 ModelGate의 api·mlflow-registry·validator에 적용했다. rollout 후 validator UID 10001에서 `kubectl`로 Argo `Synced/Healthy` revision `ff4d3bf9261fecf6f52f321f7274aea2b5dc0203`와 runtime Pod 목록을 조회하고 운영 기록을 읽었다. 공개 `/readyz`는 Ready다.
+- 참가자 안내에는 취약한 MLflow 역직렬화라는 시작 전제와 각 경계의 증거를 명시했다. Git README에는 Deployment에서 바꿀 UID, maintenance mount의 읽기 전용 설정, 고정 작업 실행 방식과 EC2 증명 태그 형식을 적었다. 태그 키는 `lab.vuln-mlops/proof`로 고정이고 값은 `lab-`로 시작하는 참가자 선택 marker다. 멘토 문서는 현재 셸 중심 경로로 다시 쓰고 2026-10-07 프로필은 `docs/archive/`에 보존했다. 공유 Git 브랜치와 공격 노드의 초기화는 각 참가자 종료 후 운영자가 수동으로 한다.
+- active 로컬 runtime 매니페스트의 stage 메타데이터와 환경변수를 component/maintenance 명칭으로 정리하고 admission 정책과 코드 호환 분기를 맞췄다. 이 로컬 변경과 새 Git README는 현재 공격 상태의 Gitea 브랜치나 클러스터 runtime-builder에 아직 적용하지 않았다. 관련 로컬 테스트 10개와 렌더링·문법·공백 검사가 통과했다. 현재 공격 commit과 노드 태그는 증거 확보를 위해 유지한다.
+
+- 새 ModelGate OCI index `ghcr.io/seung-ukk/vuln-mlops@sha256:5eb4ae6d2aacc90e9c8dc770aa5a5e759a1022e969e5eea2b700f7aaed9eed48`를 GHCR에 게시하고 EKS에 적용했다. 공개 `/readyz`는 Ready이며 `/api/meta`에서 webhook이 비활성이다. 같은 VPC의 공격자 EC2 `i-030d4a51c1ac858ad` (`10.42.143.106`, 당시 공인 IP `3.35.13.221`)는 `nc`를 갖고 공개 ModelGate에 접근한다. Terraform의 선택적 공격자 보안 그룹과 공개 접근 허용 변경은 적용된 상태다. 아래의 미적용·미설치 문구는 이 날짜 이전의 기록이다.
+- 전용 EC2에서 수신하고 공개 모델 업로드·등록 경로에 멘토용 `poc/rce_reverse_shell.py`를 실행했다. validation Job은 `succeeded`였고 validator Pod에서 `uid=10001(modelgate)`의 `/bin/sh` 세션으로 연결됐다. 셸에서 `/opt/modelgate/VALIDATOR_OPERATIONS.txt`를 읽고 제한된 ServiceAccount로 `observability-lab` Pod 목록과 `operations-log` Pod 로그를 조회했다. 로그에는 배포별 Git credential 단서가 있었다. 이 회차의 최초 진입은 멘토 PoC를 사용했으므로 완전한 블라인드 역직렬화 발견성 검증은 아니다.
+- 새 `observability-lab`, `delivery-lab`, `runtime-lab` 리소스가 적용됐다. 초기에는 strict VPC CNI 아래 Gitea/Grafana ingress가 시간 초과됐으나 사용자가 제한 NetworkPolicy 네 개를 적용해 복구했다. 이 정책들은 이제 각 kustomization에도 포함된다. Gitea `lab-runtime` baseline `0bb98cddfcf97748c80466b80ee23da4f787a4bb`를 Argo가 `Synced/Healthy`로 반영했다.
+- 배포 중 Gitea의 kubelet HTTP readiness가 시간 초과되어 로컬 exec probe로 고쳤다. `operations-log`의 Kubernetes 서비스 환경변수와 포트 변수 충돌도 고쳤고, observability readiness를 localhost exec probe로 조정했다. `operations-log` rollout은 성공했다. 변경 범위의 테스트 7개와 `bash -n` 및 `git diff --check`가 통과했다. 내부 서비스 연결은 계속 확인해야 한다.
+- 클러스터의 AWS VPC CNI는 `NETWORK_POLICY_ENFORCING_MODE=strict`다. 정책 적용은 자동 승인 검토에서 두 차례 거부됐고, 이후 사용자가 WSL에서 명시적으로 적용했다. validator에서 Grafana `/api/health`와 UID 기반 Prometheus `delivery_sync_info` 조회가 성공했다. 참가자 reverse shell에서 운영 메모 → Grafana datasource → 지표의 `log_namespace`/`log_selector` → 제한 ServiceAccount의 Pod 로그 → 배포별 credential → Gitea `lab-runtime` clone까지 확인했다.
+- 참가자 셸의 제한 Git credential로 `runtime-builder/deployment.yaml` 변경 commit `ff4d3bf9261fecf6f52f321f7274aea2b5dc0203`를 `lab-runtime`에 push했다. Argo는 같은 전체 revision에서 `Synced/Healthy`, 새 runtime-builder Pod는 전용 escape 노드에서 `1/1 Running`이었다. 참가자 ServiceAccount로 읽은 runtime-builder 로그에는 호스트 증거 파일의 `root`/UID 0, 전용 노드 hostname, `vuln-mlops-escape-node` assumed-role ARN, marker `lab-20261008test01`이 있었다. AWS `DescribeTags`는 실제 escape EC2 `i-02ca356d1262414eb`의 `lab.vuln-mlops/proof=lab-20261008test01`을 반환했다. CloudTrail `CreateTags` 관리 이벤트는 같은 인스턴스·키·값, 노드 assumed-role 호출자, `errorCode=null`을 기록했다. 이로써 새 경로의 최종 AWS 변경까지 기능적으로 검증됐다. 호스트 systemd journal 자체는 이 회차에서 독립 조회하지 않았다.
+- 최초 셸 획득에는 멘토용 역직렬화 PoC를 사용했다. 최종 Git payload도 WSL 멘토용 `deploy/participant_hostpath.py`로 생성한 뒤 운영자 `kubectl cp`로 참가자 셸의 저장소 작업 디렉터리에 옮겼다. 이후 commit/push는 참가자 셸에서 수행했다. 따라서 **역직렬화·지표 탐색·최종 payload 작성의 완전한 블라인드 발견성은 이 검증으로 주장하지 않는다.** 현재 Gitea 브랜치와 노드 태그는 공격 후 상태 그대로 남아 있어 스크린샷·증거 확보 전 복원하지 않았다.
+- 참가자 단서 보완 항목: 운영 메모에는 `delivery_sync_info` 이름과 Grafana UID 프록시 경로를 알아낼 방법이 부족하다. README는 고정 hostPath `task.sh`와 systemd 실행을 설명하지만, 최종 EC2 증명 태그의 키 `lab.vuln-mlops/proof`와 `lab-*` 값 조건은 알려주지 않는다. baseline Deployment에 `lab.vuln-mlops/stage: "05"`와 `STAGE5_MODE`라는 이전 stage 명칭도 남아 있다. 현재 Git 변경은 노드의 대화형 셸을 주는 방식이 아니라, 호스트 systemd가 Git으로 바뀐 task를 root로 실행하는 방식이다. 기능 검증은 완료됐고 이 발견성 간극은 후속 보완이 필요하다.
+
+## 현재 작업: 참가자 셸 중심 경로로 재구성 중
+
+- 사용자가 2026-10-08에 범위를 새로 정했다. 목표는 모델 검증 역직렬화
+  RCE → 전용 공격자 EC2의 사설 IP로 validator reverse shell → 내부
+  Grafana/Prometheus 단서와 운영 로그의 배포별 제한 Git credential →
+  `runtime-builder/deployment.yaml` 변경 → Argo CD 동기화 → 고정 hostPath의
+  read-only 및 UID/GID 전환 → 호스트 systemd root 실행 → 노드 역할로 전용
+  EC2 인스턴스에 참가자 증명 태그 쓰기다. SSRF, 고정 Job, broker 교환,
+  중간 Flag, 공개 `next`
+  응답은 새 정답 경로에서 제외한다. 새 계약 초안은
+  `docs/ATTACK_CHAIN_CONTRACT.md`에 있다.
+- GitHub `origin/main`의 SHA와 로컬 HEAD가 모두
+  `eec4976de4c4e29dfa532953f4a5a7c3484ebf26`임을 확인했다. 이 커밋의
+  추적 파일은 원격에서 복구 가능하다. 기존 미커밋 문서와 로컬 변수는
+  `C:\Users\yoseb\AppData\Local\Temp\vuln-mlops-pre-rework-20261008-020532`
+  에 별도 보관했다. 기존 미추적 `checkpoints/`와 `vuln-mlops-gitops/`는
+  변경하지 않았다.
+- 로컬 코드에서는 mentor용 역직렬화 reverse-shell PoC, validator 운영
+  메모, 셸 조사용 도구, 새 `observability-lab`·`delivery-lab`·`runtime-lab`
+  매니페스트 및 배포 준비 스크립트를 작성했다. 관측 단서는 Grafana의
+  Prometheus 지표에서 `operations-log` Pod를 찾고, validator의 제한된
+  ServiceAccount로 그 로그를 읽도록 구성했다. Git 토큰은 저장소에
+  고정하지 않고 배포 때 생성하는 Secret에서 운영 로그로 유출된다.
+  hostPath, no-IAM ServiceAccount, admission 정책, 전용 노드 선택을 기존
+  검증 프로필에서 새 이름으로 옮겼다. 최종 IAM 작업은 전용 노드의
+  `lab.vuln-mlops/proof` 키에만 제한된 `ec2:CreateTags`로 바꿨다.
+- 로컬 WSL의 실제 MLflow 역직렬화로 같은 프로세스 문맥의 셸 연결과 명령
+  실행을 확인했고, 운영 로그의 지표·로그 분리 테스트도 통과했다. 두 새
+  kustomization은 로컬 렌더링됐고 셸 문법 및 `git diff --check`가 통과했다.
+  새 Docker 이미지는 최종 화면·경로 분리 코드까지 로컬에서 다시 빌드됐다.
+  컨테이너 UID/GID 10001, `curl`, `git`, 운영 메모 존재와 mentor PoC 소스
+  부재를 확인했다. 새 프로필의 OpenAPI는 모델 업로드·등록·검증 등 9개
+  경로를 남기고 기존 SSRF·foothold·webhook 경로를 제외한다.
+  Terraform의 선택적 공격자 EC2 보안 그룹은 `validate`를 통과했으나
+  적용하지 않았다. 새 hostPath PoC는 호스트 UID·hostname, instance-profile
+  ARN과 참가자 marker 기록을 생성하고, 전용 노드의 EC2 증명 태그를 쓴 뒤
+  내부 Pod 로그에서 두 증거 파일을 읽도록 구성했다. 이전 S3 기반 PoC의
+  테스트 결과는 새 태그 경로의 검증으로 보지 않는다.
+  **아직 새 이미지를 게시하거나 EKS에 새 프로필을 적용하지 않았다.**
+  따라서 참가자 EC2↔validator 연결, 내부 Git·Argo, hostPath·EC2 태그의 새
+  전체 경로는 미검증이다. 공격자 EC2는 사용자가 아직 생성하지 않았다.
+  현재 공개 EKS는 아래 2026-10-07 기존 Stage 프로필 상태로 봐야 한다.
+- 2026-10-08 최종 AWS 영향을 S3 `GetObject`에서 전용 EC2 노드의
+  `lab.vuln-mlops/proof` 태그 쓰기로 변경했다. Terraform은 escape 노드
+  launch template에 식별 태그를 명시하고, 선택적 노드 IAM 정책을
+  `ec2:CreateTags`의 escape-tagged instance·단일 tag key·`lab-` marker로
+  제한한다. 멘토용 manifest 생성기는 호스트 assumed-role의 instance ID를
+  추출하여 해당 인스턴스에 태그를 쓴다. 호스트 결과 파일은 내부 Pod 로그에서만
+  읽는다. 운영자 수락 시 실제 EC2 태그와 CloudTrail `CreateTags` 관리 이벤트의
+  대상 instance ID·호출자 session ID를 대조해야 한다. **실제 AWS 호출과
+  이벤트는 아직 검증하지 않았다.** 변경 범위의 로컬 테스트 5개, 생성된 Bash
+  문법, Terraform `fmt -check`(변경한 4개 파일)·`validate`, `git diff --check`가
+  통과했다. 저장소의 기존 `personal.auto.tfvars`는 전체 `terraform fmt -check`
+  대상에서 포맷 차이가 남아 있으나 이번 변경에서 건드리지 않았다.
+- 공격자 EC2 `i-030d4a51c1ac858ad`가 같은 VPC의 퍼블릭 서브넷에서
+  사설 IP `10.42.143.106`, 현재 공인 IP `3.35.13.221`로 생성됐다.
+  인스턴스 프로파일은 없고 전용 보안 그룹 `sg-0adf4e68c6f29dd82`가
+  붙었다. SSH는 성공했으나 EC2에서 공개 ModelGate `/readyz`는 응답 없이
+  대기했다. 현재 참가자 허용 CIDR에 이 공인 IP가 없으므로 로컬
+  `personal.auto.tfvars`에 `3.35.13.221/32`를 추가했다. Terraform과
+  ModelGate Service/NetworkPolicy에는 **아직 적용하지 않았다**. EC2에는
+  `nc`가 설치돼 있지 않다. 이 공인 IP는 EC2 중지/시작 시 바뀔 수 있다.
+
 ## 현재 기준점
 
+- 2026-10-07 재실행에서 공개 Stage 1-A SSRF canary, Stage 1-B marker-only
+  RCE, Stage 2 고정 Job과 합성 proof, Stage 3 제한 Git credential 교환을
+  순서대로 확인했다. Stage 1-B에는 멘토용 `poc/rce_marker.py`를 사용했으므로
+  이 회차를 완전한 블라인드 풀이 검증으로 주장하지 않는다. 공개 `/docs`와
+  OpenAPI만으로는 의도한 MLflow flavor와 marker 생성 규칙을 찾기 어려운
+  단서 발견성 문제가 남아 있다. 참가자 gateway의 공격 commit
+  `45cefa45db719b93420945588226dd123ee57b26`가 Argo에서 같은 revision으로
+  `Synced/Healthy`였고, 공개 node-result는 HTTP 200으로 계정
+  `707605822656`, 당시 노드 `i-02e6ad123d5453a07`의
+  `vuln-mlops-escape-node` assumed-role ARN, 합성
+  `FLAG{stage_5_iam_placeholder}`를 반환했다. Falco는 같은 노드에서
+  `process=bash uid=0` 호스트 maintenance 경보를 기록했고 같은 이벤트가
+  CloudWatch에도 도착했다. 독립 S3 CloudTrail GetObject 데이터 이벤트는
+  켜지 않았으므로 확인하지 않았다. 공개 node-result는 결과 JSON의 필드와
+  형식을 검사하지만 현재 placeholder Flag의 정확한 값은 검증하지 않는다.
+  참가자가 호스트 task를 제어할 수 있는 구조에서 이 응답만으로 실제 S3
+  `GetObject`를 독립 증명할 수 없다. 배포별 비공개 합성 Flag의 해시 검증과
+  한 객체에 한정된 GetObject 데이터 이벤트는 후속 보완 과제다.
+- 재실행 후 참가자 Git baseline을
+  `1baa26b92a9bc612fd548092d668e648941240aa`로 복원했다. 이 commit의
+  `runtime-builder/deployment.yaml`은 이전 baseline `ff66336`과 동일하며
+  Argo는 새 revision에서 `Synced/Healthy`다. 공격 노드
+  `i-02e6ad123d5453a07`을 drain·종료하고 새 escape 노드
+  `ip-10-42-12-238.ap-northeast-2.compute.internal`
+  (`i-02ca356d1262414eb`)로 교체했다. 새 노드는 Ready이고 baseline builder는
+  UID/GID 10001로 `1/1 Running`, Falco escape와 CloudWatch 수집기도
+  각각 `1/1 Running`이다. 일회성 진단으로 기본 host task, 결과 파일 부재,
+  AWS CLI 존재를 확인하고 진단 Pod를 삭제했다. Stage 2 Job 삭제와 ModelGate
+  재시작 후 공개 `/readyz`는 HTTP 200, 이전 foothold `/self-rules`는
+  HTTP 404였다. 재시작 직후 한 차례 공개 요청 시간 초과가 있었으나
+  후속 조회에서 복구됐다.
+- 2026-10-07 참가자 접속 재개를 위해 `116.121.12.50/32`,
+  `58.29.191.191/32`, `112.170.44.247/32`, `39.7.28.94/32`를
+  운영자 EKS API와 ModelGate 참가자 허용 목록 양쪽에 반영했다. 기존
+  허용 CIDR은 유지했다. Terraform의 `enable_hostpath_node_capstone=true`를
+  로컬 변수에 명시해 현재 Stage 5 배포를 보존했다. EKS cluster CIDR만
+  대상 한정 apply했고, refresh-only로 Terraform 참가자 CIDR 출력을
+  동기화했다. ModelGate Service, NetworkPolicy, NLB TCP 80 보안 그룹에
+  네 CIDR이 모두 반영됐고, 현재 공인 IP `116.121.12.50`에서 공개
+  `/readyz` 응답을 확인했다. 나머지 세 IP에서의 실제 접속은 해당
+  네트워크에서 별도 확인이 필요하다. 전체 Terraform plan의 EKS add-on과
+  OIDC 갱신은 이번 접근 변경 범위 밖이므로 적용하지 않았다.
+- 2026-10-07 hostPath capstone 수락 검증 뒤 Git baseline을
+  `ff66336f6c1f633194c31306a98323a5d400a83d`로 복원했고, 공격이 실행된
+  escape EC2 인스턴스를 종료해 새 노드
+  `ip-10-42-24-178.ap-northeast-2.compute.internal`
+  (`i-02e6ad123d5453a07`)로 교체했다. 새 노드는 Ready이며 baseline
+  `runtime-builder-7dd95bdf77-t6f6d`는 그 노드에서 `1/1 Running`, 실제
+  UID/GID는 10001/10001이다. `falco-escape`와 `falco-cloudwatch`가 새 노드에서
+  각각 `1/1 Running`이고 DaemonSet rollout도 완료됐다. 일회성 호스트 진단은
+  기본 `task.sh`, `node-evidence/result.json` 부재, `/usr/bin/aws` 존재를
+  확인한 뒤 삭제됐다. 공개 `/readyz`는 Ready다. 이후 Stage 2의
+  `stage-02-secret-reader` Job을 삭제하고 ModelGate Deployment를 재시작했다.
+  공개 `/readyz`는 다시 Ready를 반환했고 이전 foothold의 `/self-rules`는
+  HTTP 404로 세션 초기화를 확인했다. Argo Application은 복원 commit에서
+  `Synced/Healthy`, 새 노드의 baseline builder Pod는 `1/1 Running`이다.
+
+## 새 경로 검증·전환 이력 (각 항목은 당시 시점의 기록)
+
+- 2026-10-07 새 GitOps baseline을 Gitea `stage4-lab`에 push했다. 새 commit은
+  `c6d90974a2d47cf0ff31e2daeba5d5a8daaf1f25`이고 변경 파일은
+  `runtime-builder/deployment.yaml`과 참가자용 `runtime-builder/README.md`다.
+  Argo `runtime-builder` Application은 자동 동기화를 중지한 상태에서
+  새 comparison revision `c6d9097`을 인식했다. 자동 동기화 복구 후
+  `Synced/Healthy`와 정확한 전체 revision
+  `c6d90974a2d47cf0ff31e2daeba5d5a8daaf1f25`를 확인했다. 사전 검증한 JSON patch로
+  라이브 `runtime-builder` Deployment의 새 Pod template과 replicas=1을
+  적용했고 rollout은 성공했다. Pod `runtime-builder-7dd95bdf77-f5ncx`는
+  새 escape worker `ip-10-42-29-117`에서 `1/1 Running`이다. 전환 작업 디렉터리는
+  `/tmp/vuln-hostpath-git-cutover-20261007-151900`이다.
+- 사용자가 `stage-04-gitops/stage-04-internal` NetworkPolicy의 egress를
+  같은 namespace와 `kube-system` DNS로 좁혔다. 기존 넓은 API CIDR egress는
+  제거됐고, 별도 `argocd-controller-api-egress` 정책을 확인한 뒤 적용했다.
+  적용 후 Argo Application은 `Synced/Healthy` 및 새 Git revision을 유지했다.
+- 사용자가 escape 전용 호스트 maintenance 관측 규칙을 포함한 Falco와
+  호스트 경보 필터를 포함한 Fluent Bit CloudWatch 수집기를 업그레이드했다.
+  공유된 결과에서 `falco-general` 2/2, `falco-escape` 1/1,
+  `falco-cloudwatch` 3/3이 Ready이고 escape 노드에도 두 DaemonSet Pod가
+  `1/1 Running`이다. 실제 host maintenance 경보의 CloudWatch 도착은
+  아직 공격 task를 실행하지 않아 검증 전이다.
+- 사용자가 ModelGate `api`, `mlflow-registry`, `validator`를 새 GHCR digest로
+  갱신했다. Deployment는 `1/1`, 새 Pod는 general worker
+  `ip-10-42-9-133`에서 `3/3 Running`이며 재시작 0이다. API 컨테이너의
+  OpenAPI에 `/api/lab/footholds/{proof_id}/stage-05/node-result` 경로가
+  존재함을 확인했다. 공개 EIP의 신규 경로, baseline 쓰기 거부, 실제
+  호스트 작업·S3 조회는 아직 검증 전이다.
+- 라이브 baseline Deployment 사양은 `runtime-builder-hostpath` ServiceAccount,
+  token automount 비활성, escape node selector, UID/GID 10001, maintenance와
+  evidence 두 mount의 read-only를 만족했다. Pod 안의 실제 `id`도 10001/10001이고,
+  maintenance 디렉터리에 무해한 probe 파일 생성은 errno 13으로 거부됐다.
+  Pod의 직접 IMDSv2 token 요청은 `URLError`로 실패했다. 독립적인
+  UID와 read-only mount 원인 분리, 공개 참가자 경로, 실제 호스트 실행은
+  아직 검증 전이다.
+- 운영자 일회성 `hostpath-boundary-probe` Pod를 같은 escape worker에서 실행해
+  두 보호 장치를 독립 확인했다. 비루트 UID/GID 10001에 writable maintenance
+  mount를 준 경우 호스트 권한이 쓰기를 거부했고, root UID/GID 0에 read-only
+  mount를 준 경우 mount가 쓰기를 거부했다. Pod는 Completed 후 삭제됐다.
+  `task.sh`와 노드 evidence는 이 진단에서 변경하지 않았다.
+- 새 ModelGate 이미지의 공개 EIP에서 `/readyz`가 Ready를 반환했다.
+  새 RCE foothold 세션 `fa59825f-73a2-4c0e-b549-e3174c47e0c6`에서
+  Stage 2 고정 Job이 성공하고 합성 RBAC proof가 확인됐다. 이어 Stage 3
+  exchange가 `stage4-lab`/`runtime-builder/`에 한정된 Git credential과
+  participant Git gateway를 반환했다. 사용자의 로컬 검증 디렉터리는
+  `/tmp/vuln-hostpath-participant-8jLXZe`이며 token 내용은 공유되지 않았다.
+  공개 Stage 4 status는 baseline revision의 `Synced/Healthy`와 hostpath mode를
+  반환했다. Git 변경 전 `/stage-05/node-result`는 HTTP 502였다. 비루트
+  baseline이 root-only evidence 경로를 읽을 수 없어 발생할 수 있으므로
+  이것만으로 evidence 파일 부재를 확정하지 않는다. 실제 노드 파일 부재를
+  push 전에 별도 확인한다. 참가자 gateway로 `stage4-lab`을 clone했고
+  baseline SHA 일치를 확인했다. 멘토용 생성기로 만든 후보는
+  `runtime-builder/deployment.yaml` 한 파일만 변경(121 추가/30 삭제)하며
+  고정 이미지·노드·SA·S3 대상과 host 스크립트 문법 검사를 통과했다.
+  Argo controller identity로 후보 Pod template의 EKS server dry-run도
+  통과했다. 실제 Git commit/push와 노드 실행은 아직 진행 전이다.
+- 운영자 일회성 `hostpath-final-preflight` Pod가 escape worker에서 기본
+  `task.sh` 내용이 `#!/bin/bash`와 `exit 0`뿐임을 확인했고, 별도
+  `node-evidence/result.json`이 없음을 확인했다. 호스트 `/usr/bin/aws`도
+  존재했다. 진단 Pod는 Completed 후 삭제됐다. 따라서 push 전 공개
+  HTTP 502는 선행 결과 파일 때문이 아니며, 현 baseline 비루트 Pod의
+  root-only evidence 경로 접근 실패와 부합한다.
+- 참가자 Git gateway로 `runtime-builder/deployment.yaml` 한 파일을
+  commit `94a46e04e8ba329ee292d2ead39acdb49b1c1ad4`로 push했다.
+  공개 Stage 4 API에서 Argo `Synced/Healthy`, 정확한 commit SHA,
+  hostpath mode와 Stage 4 합성 proof가 확인됐다. 새 Pod
+  `runtime-builder-698998b447-4zm92`는 escape worker
+  `ip-10-42-29-117`에서 `1/1 Running`이다. 공개 `node-result` API는
+  HTTP 200으로 계정 `707605822656`, 그 worker instance
+  `i-0df552f4de9d7be88`의 `vuln-mlops-escape-node` assumed-role ARN,
+  `FLAG{stage_5_iam_placeholder}`를 반환했다. 이는 검토된 host task의
+  결과 채널이며 Falco·CloudWatch 호스트 실행 관측 및 Pod 직접 IAM
+  shortcut 거부는 이어서 독립 확인한다.
+- Falco escape 로그에서 `2026-10-07T06:50:51.897408143Z`의
+  `Lab escape host maintenance started` 이벤트가 관측됐다. hostname은
+  새 escape worker이고 출력은 `process=bash uid=0`이다. CloudWatch
+  `filter-log-events`의 text 형식 `length(events)` 질의가 페이지별로
+  `1`과 `0` 두 줄을 반환해 셸 숫자 비교가 실패했다. 따라서 같은 명령
+  블록의 CloudWatch 상세 조회와 Pod IMDS/evidence 거부, IAM simulation은
+  실행되지 않았다. CloudWatch JSON 응답을 합쳐 다시 확인해야 한다.
+- 수정된 CloudWatch JSON 조회에서 host maintenance Falco 이벤트 한 건이
+  확인됐다. timestamp는 `2026-10-07T06:50:51.897408143Z`, hostname은
+  escape worker, 출력은 `process=bash uid=0`으로 Falco 원본과 일치한다.
+  변경된 runtime-builder Pod의 실제 UID/GID는 0/0이며, 별도 evidence
+  mount의 probe 파일 쓰기는 `EROFS`, 직접 IMDSv2 token 요청은 `URLError`로
+  거부됐다. 다만 `iam simulate-principal-policy`의 표 출력은 요청한 두
+  S3 ARN 대신 `arn:aws:s3:::${BucketName}/${KeyName}` 한 줄과
+  `implicitDeny`를 보여 줬다. AWS의 현재 응답 구조에서는 상위
+  `EvalResourceName`이 ARN 템플릿이므로, 이 표는 정확한 객체별 판단이
+  아니다. 개별 ARN 결과는 `ResourceSpecificResults`의
+  `EvalResourceDecision`으로 다시 확인해야 한다.
+- 실제 노드 역할의 inline policy `read-synthetic-node-proof`가 정확한
+  `proof/final-flag.txt` 객체 하나의 `s3:GetObject`만 허용함을 확인했다.
+  수정한 IAM 시뮬레이터의 `ResourceSpecificResults`에서 해당 객체는
+  `allowed`, 같은 버킷의 `proof/other.txt`는 `implicitDeny`였다.
+  공개 참가자 경로, 호스트 Falco·CloudWatch 경보, root Pod의 evidence
+  mount·IMDS 거부까지 새 capstone acceptance를 통과했다. 남은 필수
+  작업은 Git baseline 복구와 장악된 escape worker 교체·재확인이다.
+- 참가자 Git gateway에서 baseline Deployment 파일을 복원해 commit
+  `ff66336f6c1f633194c31306a98323a5d400a83d`로 push했다. 공개
+  Stage 4 status는 그 revision에서 `Synced/Healthy`, `stage4_proof=null`을
+  반환했다. 새 runtime-builder Pod `runtime-builder-7dd95bdf77-c4kc4`는
+  아직 이전 escape worker `ip-10-42-29-117`에서 `1/1 Running`이고,
+  라이브 사양의 UID/GID 10001, 기본 uvicorn command, maintenance/evidence
+  read-only mount가 확인됐다. 호스트 파일과 노드 IAM 문맥은 인스턴스 교체
+  전까지 오염된 상태로 취급한다.
+- 이전 escape node `ip-10-42-29-117`의 managed node group 및 ASG
+  소속, desired size 1을 확인한 뒤 drain해 baseline runtime-builder Pod를
+  evict했다. Auto Scaling의 desired size를 줄이지 않고 EC2
+  `i-0df552f4de9d7be88`을 종료했으며 `aws ec2 wait instance-terminated`가
+  완료됐다. 새 escape worker `ip-10-42-24-178`이 Ready이고 general 노드
+  두 대도 Ready다. 새 instance ID, 깨끗한 host 상태, baseline Pod와
+  Falco/CloudWatch 재배치는 아직 후속 확인 전이다.
+- 2026-10-07 사용자 실환경 사전 점검: AWS 계정 `707605822656`와 EKS context
+  `vuln-mlops-personal-lab`이 일치했다. general 노드 2대와 escape 노드 1대가
+  Ready이고 Argo runtime-builder는 이전 baseline revision
+  `290827d73848a9a6235ca3d537ea4b1fd363cfe0`에서 Synced/Healthy다.
+  기존 이미지 digest `sha256:8c97af1b9aae5dd8f182f30c11a1a7b5c2ac9cd5b94a91257fa8f6ed56e5a0a4`
+  기반 runtime-builder는 general 노드, runtime-maintenance는 escape 노드에서
+  각각 1/1 Ready다. 이전 Pod IRSA와 relay Service/NetworkPolicy가 여전히
+  존재하므로 노드 IAM 정책 적용 전에 이 workload들을 중지·제거해야 한다.
+  Falco general/escape와 falco-cloudwatch DaemonSet은 각각 2/2, 1/1, 3/3
+  Ready다. 새 capstone은 아직 실환경에 적용되지 않았다.
+- 사용자가 `/tmp/vuln-hostpath-preflight-20261007-123423`에 현재 Argo와
+  Stage 5 리소스를 백업하고 `stage4-lab` Git bundle을 만들었다. bundle은
+  baseline revision `290827d73848a9a6235ca3d537ea4b1fd363cfe0`의 전체
+  이력을 포함하며 `git bundle verify`가 통과했다. 새 Terraform plan은
+  1 add/2 update/1 destroy로, escape node에 정확한 S3 단일 객체 GetObject를
+  추가하고 이전 runtime-builder Pod IRSA S3 정책을 제거하며 escape node
+  group launch template/user-data만 갱신한다. plan은 아직 적용하지 않았다.
+- 사용자가 위 저장 plan을 적용해 `1 added, 2 changed, 1 destroyed`로 완료했다.
+  Terraform output은 `hostpath_node_capstone_enabled=true`, escape node role
+  `arn:aws:iam::707605822656:role/vuln-mlops-escape-node`다. 이전 escape 노드
+  `ip-10-42-5-251`은 새 `ip-10-42-29-117`(Ready)로 교체됐다. general 노드
+  두 대는 Ready이며 Falco escape 1/1, falco-cloudwatch 3/3 Ready였다.
+  공유된 출력에는 이전 두 Stage 5 Pod의 최종 소멸, 실제 host systemd unit 활성,
+  노드 역할의 S3 조회, 새 baseline GitOps 배포는 아직 포함되지 않았다.
+- 후속 사용자 출력에서 이전 runtime-maintenance Deployment, runtime-relay
+  Service, 두 이전 ServiceAccount, ConfigMap, 관련 개방형 NetworkPolicy가
+  제거됐다. `runtime-builder` Deployment만 0/0으로 남고 그 Service와
+  `stage-05-default-deny`는 유지됐다. 새 escape worker는
+  `ip-10-42-29-117` / EC2 `i-0df552f4de9d7be88`이다. SSM
+  `describe-instance-information`은 빈 목록을 반환해 SSM 진단은 사용할 수
+  없었다. host bootstrap 파일과 systemd 활성 상태는 아직 별도 확인 필요하다.
+- 운영자 일회성 Pod `hostpath-bootstrap-check`가 새 escape 노드에서
+  root-owned maintenance/evidence 경로와 `task.sh`의 0600 권한, systemd
+  service/path 파일을 확인했다. `vuln-mlops-maintenance.path`는 `enabled` 및
+  `active`였다. 진단 Pod는 완료 후 삭제됐다. 실제 공격 task 실행과 노드
+  역할 S3 조회는 아직 검증하지 않았다.
+- 사용자가 새 `runtime-builder-hostpath` ServiceAccount, Stage 5 전용
+  Role/RoleBinding, hostPath ingress/egress 제한 NetworkPolicy, Argo controller의
+  API egress 정책과 새 admission 정책·binding을 적용했다. 공유된 마지막 출력에서
+  ServiceAccount와 정책이 존재하고, Argo controller ServiceAccount는 기존
+  `runtime-builder` Deployment patch가 `yes`, 새 Deployment create는 `no`였다.
+  admission 정책·binding 적용의 개별 출력은 공유되지 않았으나 명령 블록의
+  최종 조회까지 진행됐다. 허용·거부 Deployment의 실제 server dry-run은 다음 단계다.
+- Argo controller ServiceAccount로 기존 Deployment에 새 baseline 전체 Pod
+  template을 교체하는 `--dry-run=server`가 통과했다. 이미지 digest를 바꾼
+  후보는 `stage-05-runtime-builder-only` admission 정책의 “The reviewed
+  image and container are fixed” 메시지로 거부됐다. 실제 Deployment는
+  여전히 `replicas=0`, 이전 `runtime-builder-iam` ServiceAccount를 참조한다.
+  즉 dry-run은 라이브 workload를 시작하지 않았다.
+- 2026-10-07 PR #11을 `main`에 merge commit `eec4976`으로 병합했다.
+  main CI의 Python test, 앱 container, runtime-client 3개가 모두 통과했다.
+  새 앱 OCI index digest는
+  `ghcr.io/seung-ukk/vuln-mlops@sha256:64dcffccfe54b2b8a22006c379f16c6b5eac02f9bd24c70845145e0f4d2738d5`다.
+  로컬 `main`도 해당 병합 커밋으로 fast-forward했다. 실제 EKS, GitOps branch,
+  Terraform plan, Falco/Fluent Bit release에는 아직 새 capstone을 적용하지 않았다.
 - 2026-10-07 이미지 발행 사전 검증: 전체 Python 테스트 224개가 통과했다.
   신규 공개 `/node-result` 경로를 기존 API 허용 목록 테스트에 반영하고
   요청 본문이 없음을 확인했다. `.dockerignore`를 Dockerfile이 실제 복사하는

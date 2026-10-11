@@ -1,17 +1,17 @@
-# Stage 4/5 hostPath capstone: operator migration draft
+# Stage 4/5 hostPath capstone: operator migration record
 
-Status: local implementation only. **Do not run the cutover commands yet.** The
-new ModelGate/runtime-builder image must be published at a reviewed OCI index
-digest, the candidate Deployments must be tested against the installed new
-admission policy, and the current
-GitOps branch must be backed up first. No live EKS resources have been changed
-by this draft.
+Status (2026-10-07): deployed and accepted in the personal EKS. The public
+participant path reached the reviewed Git/Argo revision, host maintenance
+execution, and the escape node role's exact synthetic S3 object. The Git
+baseline was restored, the exercised escape instance was replaced, and the
+Stage 2 Job and ModelGate foothold session were reset. The live Argo revision is
+`ff66336f6c1f633194c31306a98323a5d400a83d` (`Synced/Healthy`); the new
+escape instance is `i-02e6ad123d5453a07`. See `STATUS.md` for evidence.
 
-The Terraform plan generated before the separate `node-evidence` directory
-was added is stale. The reviewed replacement is
-`/tmp/vuln-hostpath-node-review-v2.tfplan`; do not apply the earlier
-`/tmp/vuln-hostpath-node-review.tfplan` file. The revised admission policy
-passed an EKS server-side dry run on 2026-10-07, without persisting it.
+The following cutover steps are a historical record, **not a procedure to
+reapply to the running lab**. Previously saved Terraform plans are stale and
+must not be applied. The reviewed app OCI index digest was
+`ghcr.io/seung-ukk/vuln-mlops@sha256:64dcffccfe54b2b8a22006c379f16c6b5eac02f9bd24c70845145e0f4d2738d5`.
 
 ## Target topology
 
@@ -33,7 +33,7 @@ container count. The host's `vuln-mlops-maintenance.path` unit watches only
 host root. This is real host execution on a disposable node. The node must be
 replaced after a solve.
 
-## Before cutover
+## Historical cutover checks
 
 1. Build and publish the changed app image after explicit authorization to
    commit/push. Record its complete OCI index digest. The current deployed
@@ -121,12 +121,18 @@ replaced after a solve.
   node-role S3 `GetObject` separately, using an S3 data event if enabled.
   The participant result endpoint is a bounded display channel; its JSON
   alone is not independent host evidence.
-- Restore the baseline Git revision. Terminate the compromised escape EC2
+- Restore the baseline Git revision. Terminate the exercised escape EC2
   instance through its managed node group and wait for a new instance. Verify
   the new node has no `result.json`, the builder is baseline again, and Falco
   plus CloudWatch collection are healthy on the replacement node.
 
-The cutover is intentionally not encoded as one blind command: it requires a
+For the current hostPath profile, do not use
+`deploy/eks-lab/orchestrate.sh reset --stage5-iam`: it targets the retired Pod
+IRSA profile. After restoring the Git baseline and replacing the escape node,
+delete the fixed `stage-02-secret-reader` Job and restart ModelGate to clear its
+Pod-local foothold markers. Check public `/readyz`, a 404 for the old foothold,
+and the exact restored Argo revision. These checks passed on 2026-10-07.
+
+The cutover was intentionally not encoded as one blind command: it required a
 new image digest, a reviewed Terraform plan, a server-side admission dry run,
-and live evidence from the user's personal account. The operator should stop
-if any prerequisite or expected deletion differs from this list.
+and live evidence from the user's personal account.

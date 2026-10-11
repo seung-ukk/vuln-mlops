@@ -1,0 +1,83 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: prometheus, namespace: observability-lab}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: prometheus}}
+  template:
+    metadata: {labels: {app: prometheus}}
+    spec:
+      securityContext: {runAsNonRoot: true, runAsUser: 65534, runAsGroup: 65534, fsGroup: 65534, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: prometheus
+          image: prom/prometheus:v3.14.0@sha256:5ce7540c3c00ef4ab0c9d2c995c6a5b9c421f44b4a115d97a2c7af3b1c21cbb0
+          args: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.path=/prometheus", "--web.listen-address=:9090"]
+          ports: [{name: http, containerPort: 9090}]
+          readinessProbe: {exec: {command: [sh, -c, 'wget -q -O /dev/null http://127.0.0.1:9090/-/ready']}, initialDelaySeconds: 5, periodSeconds: 5}
+          resources: {requests: {cpu: 100m, memory: 256Mi}, limits: {cpu: 500m, memory: 512Mi}}
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+          volumeMounts:
+            - {name: config, mountPath: /etc/prometheus, readOnly: true}
+            - {name: data, mountPath: /prometheus}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - {name: config, configMap: {name: prometheus-config}}
+        - {name: data, emptyDir: {}}
+        - {name: tmp, emptyDir: {}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: grafana, namespace: observability-lab}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: grafana}}
+  template:
+    metadata: {labels: {app: grafana}}
+    spec:
+      securityContext: {runAsNonRoot: true, runAsUser: 472, runAsGroup: 472, fsGroup: 472, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: grafana
+          image: grafana/grafana:13.2.2@sha256:ac461fb352abc50da10a51c7d02462e9c05488f11f53f14b3ad79a8145f638a0
+          ports: [{name: http, containerPort: 3000}]
+          env:
+            - {name: GF_AUTH_ANONYMOUS_ENABLED, value: "true"}
+            - {name: GF_AUTH_ANONYMOUS_ORG_ROLE, value: Viewer}
+            - {name: GF_AUTH_DISABLE_LOGIN_FORM, value: "true"}
+          readinessProbe: {exec: {command: [sh, -c, 'wget -q -O /dev/null http://127.0.0.1:3000/api/health']}, initialDelaySeconds: 10, periodSeconds: 5}
+          resources: {requests: {cpu: 100m, memory: 256Mi}, limits: {cpu: 500m, memory: 512Mi}}
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+          volumeMounts:
+            - {name: datasource, mountPath: /etc/grafana/provisioning/datasources, readOnly: true}
+            - {name: data, mountPath: /var/lib/grafana}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - {name: datasource, configMap: {name: grafana-datasource}}
+        - {name: data, emptyDir: {}}
+        - {name: tmp, emptyDir: {}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: operations-log, namespace: observability-lab}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: operations-log}}
+  template:
+    metadata: {labels: {app: operations-log}}
+    spec:
+      automountServiceAccountToken: false
+      securityContext: {runAsNonRoot: true, runAsUser: 10001, runAsGroup: 10001, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: operations-log
+          image: ghcr.io/seung-ukk/vuln-mlops@sha256:64dcffccfe54b2b8a22006c379f16c6b5eac02f9bd24c70845145e0f4d2738d5
+          command: [python, /opt/operations-log/server.py]
+          ports: [{name: metrics, containerPort: 8080}]
+          env:
+            - name: GIT_USERNAME
+              value: lab-git-writer
+            - name: GIT_TOKEN
+              valueFrom: {secretKeyRef: {name: git-writer-credential, key: token}}
+          readinessProbe: {exec: {command: [python, -c, 'import urllib.request; urllib.request.urlopen("http://127.0.0.1:8080/metrics", timeout=2)']}, initialDelaySeconds: 2, periodSeconds: 5, timeoutSeconds: 5}
+          resources: {requests: {cpu: 25m, memory: 64Mi}, limits: {cpu: 100m, memory: 128Mi}}
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+          volumeMounts: [{name: program, mountPath: /opt/operations-log, readOnly: true}]
+      volumes: [{name: program, configMap: {name: operations-log-program}}]

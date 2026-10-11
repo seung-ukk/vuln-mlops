@@ -1,5 +1,15 @@
 # vuln-mlops 공격 체인 랩 계획
 
+## 2026-10-08 참가자 셸 중심 경로 개편
+
+현재 개발 목표는 취약한 모델 검증 → validator Pod reverse shell → 내부
+모니터링·운영 로그 단서 → 제한 Git 변경 → Argo CD → 고정 hostPath의 쓰기
+전환 → host systemd root 실행 → 노드 역할로 전용 EC2 노드에 증명 태그
+쓰기다.
+중간 Flag와 Stage별 공개 foothold API는 새 풀이 경로에서 제외한다.
+새 계약은 `ATTACK_CHAIN_CONTRACT.md`, 구현·배포 검증 상태는 `STATUS.md`
+상단을 따른다. 아래 2026-10-07 계획은 당시 배포 프로필의 기록이다.
+
 ## 2026-10-07 목표 경로 변경
 
 Stage 1~3의 공개 foothold, RBAC, monitoring 및 제한된 Git credential은 유지한다.
@@ -9,8 +19,9 @@ Stage 4 이후의 목표는 Git 변경→Argo 동기화→전용 escape worker�
 프로필로만 취급하고 새 경로의 성공 증거에 사용하지 않는다. 이 변경의 상세
 입력·성공·거부 조건은 `STAGE_CONTRACTS.md`의 목표 계약을 우선한다.
 
-현재 아래의 5-A/5-B 설명은 이전 구현 기록이다. 새 경로를 실제 EKS에서
-검증하기 전까지 기존 배포 상태를 새 목표의 성공으로 해석하지 않는다.
+현재 아래의 5-A/5-B 설명은 이전 구현 기록이다. 새 hostPath 경로는
+2026-10-07 개인 EKS의 공개 참가자 경로에서 검증됐으며, 최신 배포·복구
+상태와 검증 한계는 `STATUS.md` 상단을 따른다.
 
 ## 1. 목적
 
@@ -23,8 +34,8 @@ Prometheus, Grafana, Argo CD, Kubernetes 및 AWS 구성요소는 검토 시점�
 안정 버전을 사용하고, 알려진 오래된 CVE가 아니라 운영상 잘못된 신뢰관계와
 권한 조합을 실습 대상으로 삼는다.
 
-현재 개인 EKS에서 검증된 5-B 경로와 새로 구성 중인 5-A 경로는 Stage 4
-이후 두 갈래로 나뉜다.
+이전 프로필의 5-A/5-B 계획에서는 Stage 4 이후 두 갈래로 나뉘었다.
+아래 다이어그램은 현재 배포 구성이 아닌 당시 계획이다.
 
 ```text
 외부 사용자 → ModelGate SSRF/RCE → RBAC Job → monitoring credential

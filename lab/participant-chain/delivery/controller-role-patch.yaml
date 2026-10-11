@@ -1,0 +1,9 @@
+- op: replace
+  path: /rules
+  value:
+    - apiGroups: ["*"]
+      resources: ["*"]
+      verbs: [get, list, watch]
+    - apiGroups: [argoproj.io]
+      resources: [applications, applications/status, appprojects]
+      verbs: [get, list, watch, update, patch]

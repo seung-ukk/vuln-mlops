@@ -1,0 +1,25 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: gitea-git-access
+  namespace: delivery-lab
+spec:
+  podSelector:
+    matchLabels:
+      app: gitea
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: argocd-repo-server
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: modelgate-lab
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: modelgate
+      ports:
+        - protocol: TCP
+          port: 3000

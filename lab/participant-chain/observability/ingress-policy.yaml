@@ -1,0 +1,51 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: grafana-from-validator
+  namespace: observability-lab
+spec:
+  podSelector:
+    matchLabels: {app: grafana}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: modelgate-lab
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: modelgate
+      ports:
+        - {protocol: TCP, port: 3000}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: prometheus-from-grafana
+  namespace: observability-lab
+spec:
+  podSelector:
+    matchLabels: {app: prometheus}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels: {app: grafana}
+      ports:
+        - {protocol: TCP, port: 9090}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: operations-log-from-prometheus
+  namespace: observability-lab
+spec:
+  podSelector:
+    matchLabels: {app: operations-log}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels: {app: prometheus}
+      ports:
+        - {protocol: TCP, port: 8080}

@@ -1,0 +1,6 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: runtime-lab-default-deny, namespace: runtime-lab}
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]

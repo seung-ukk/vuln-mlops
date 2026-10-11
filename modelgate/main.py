@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import re
 import tempfile
 from contextlib import asynccontextmanager
@@ -116,7 +117,8 @@ app = FastAPI(
 
 @app.get("/", include_in_schema=False)
 async def index() -> FileResponse:
-    return FileResponse(STATIC_DIR / "index.html")
+    page = "index_chain.html" if os.getenv("MODELGATE_PROFILE") == "participant-chain" else "index.html"
+    return FileResponse(STATIC_DIR / page)
 
 
 @app.get("/healthz")
@@ -1015,3 +1017,15 @@ async def test_webhook(
         json=body,
     )
     return await _proxy_mlflow_response(response)
+
+
+# The historical Stage API remains available to the older deployed profile.
+# The participant chain uses the validator Pod shell and internal Kubernetes
+# services, so those public proxy/proof routes must not advertise a second path.
+if os.getenv("MODELGATE_PROFILE") == "participant-chain":
+    legacy_paths = ("/api/system/info", "/api/proofs/", "/api/lab/", "/api/webhooks")
+    app.router.routes = [
+        route
+        for route in app.router.routes
+        if not any(route.path.startswith(prefix) for prefix in legacy_paths)
+    ]

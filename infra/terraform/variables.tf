@@ -101,6 +101,12 @@ variable "participant_access_cidrs" {
   }
 }
 
+variable "enable_attacker_receiver_security_group" {
+  description = "Create an optional security group for a manually launched lab attacker EC2 with no instance profile."
+  type        = bool
+  default     = false
+}
+
 variable "general_instance_types" {
   description = "On-demand instance types for normal Stage 1-4 workloads."
   type        = list(string)
@@ -114,7 +120,7 @@ variable "escape_instance_types" {
 }
 
 variable "enable_hostpath_node_capstone" {
-  description = "Opt in to the replacement hostPath lab's single-object S3 permission on the isolated escape worker role. Do not enable until the legacy runtime agent and Pod IRSA path are removed."
+  description = "Opt in to the participant hostPath lab's proof-tag CreateTags permission on the isolated escape worker role. Do not enable until the legacy runtime agent and Pod IRSA path are removed."
   type        = bool
   default     = false
 }

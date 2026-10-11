@@ -41,7 +41,7 @@ def healthz() -> dict[str, str]:
 def node_result(x_modelgate_relay: str | None = Header(default=None)) -> dict[str, str]:
     if x_modelgate_relay != RELAY_HEADER:
         raise HTTPException(status_code=403, detail="ModelGate relay is required")
-    if os.environ.get("STAGE5_MODE") != "hostpath":
+    if (os.environ.get("MAINTENANCE_PROFILE") or os.environ.get("STAGE5_MODE")) != "hostpath":
         raise HTTPException(status_code=409, detail="Host maintenance profile is disabled")
     try:
         return read_node_result()

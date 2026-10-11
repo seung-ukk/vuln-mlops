@@ -1,0 +1,15 @@
+ModelGate on-call notes — delivery synchronization
+
+2026-10-07: The default Grafana datasource is Operations Prometheus. The
+saved delivery panel queries delivery_sync_info; its labels identify the
+workload, namespace and Pod-log selector used for Git reconciliation.
+
+2026-10-08: After the Grafana update, the numeric datasource proxy URL
+returned 404. The on-call check now reads /api/datasources for the datasource
+UID and queries /api/datasources/proxy/uid/<uid>/api/v1/query with the PromQL
+query parameter. Grafana is cluster-local at grafana.observability-lab.svc:3000.
+
+The validator ServiceAccount is limited to the monitoring Pod inventory and
+logs, the runtime-builder Pod inventory and logs, and one Argo Application.
+Use kubectl with the mounted in-cluster identity. No operator kubeconfig is
+present in this container.

@@ -1,0 +1,20 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata: {name: runtime-lab-builder-reconciler, namespace: runtime-lab}
+rules:
+  # The Argo dynamic cache must compare namespaced live objects. Mutation is a
+  # separate resourceName rule and cannot create or delete workloads.
+  - {apiGroups: ["*"], resources: ["*"], verbs: [get, list, watch]}
+  - apiGroups: [apps]
+    resources: [deployments]
+    resourceNames: [runtime-builder]
+    verbs: [update, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: runtime-lab-builder-reconciler, namespace: runtime-lab}
+subjects:
+  - kind: ServiceAccount
+    name: argocd-application-controller
+    namespace: delivery-lab
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: runtime-lab-builder-reconciler}

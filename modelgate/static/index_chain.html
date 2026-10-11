@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ModelGate</title>
+    <style>
+      :root { color-scheme: dark; font-family: system-ui, sans-serif; }
+      body { margin: 0; background: #101521; color: #e9edf5; }
+      main { max-width: 780px; margin: 48px auto; padding: 0 18px; }
+      section { background: #1a2232; border: 1px solid #364152; border-radius: 10px; padding: 20px; margin: 16px 0; }
+      input, button { box-sizing: border-box; width: 100%; padding: 10px; margin: 7px 0 14px; }
+      pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+      a { color: #9ac4ff; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>ModelGate</h1>
+      <p>Internal model onboarding and compatibility validation.</p>
+      <p>Authorized isolated lab access only. API documentation: <a href="/docs">/docs</a>.</p>
+      <section>
+        <h2>Upload model bundle</h2>
+        <input id="bundle" type="file" accept=".zip,application/zip" />
+        <button id="upload">Upload ZIP</button>
+        <pre id="upload-result"></pre>
+      </section>
+      <section>
+        <h2>Register model</h2>
+        <input id="name" placeholder="Model name" />
+        <input id="artifact-uri" placeholder="Artifact URI from upload" />
+        <button id="register">Register and validate</button>
+        <pre id="register-result"></pre>
+      </section>
+      <section>
+        <h2>Validation job</h2>
+        <input id="job-id" placeholder="Job ID" />
+        <button id="job">Read job</button>
+        <pre id="job-result"></pre>
+      </section>
+    </main>
+    <script>
+      const show = (id, value) => document.getElementById(id).textContent = JSON.stringify(value, null, 2);
+      document.getElementById("upload").onclick = async () => {
+        const file = document.getElementById("bundle").files[0];
+        if (!file) return;
+        const response = await fetch("/api/artifacts", {method: "POST", headers: {"Content-Type": "application/zip"}, body: file});
+        const body = await response.json();
+        show("upload-result", body);
+        if (body.artifact_uri) document.getElementById("artifact-uri").value = body.artifact_uri;
+      };
+      document.getElementById("register").onclick = async () => {
+        const response = await fetch("/api/models", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({name: document.getElementById("name").value, artifact_uri: document.getElementById("artifact-uri").value})});
+        const body = await response.json();
+        show("register-result", body);
+        if (body.validation_job?.id) document.getElementById("job-id").value = body.validation_job.id;
+      };
+      document.getElementById("job").onclick = async () => {
+        const response = await fetch("/api/jobs/" + encodeURIComponent(document.getElementById("job-id").value));
+        show("job-result", await response.json());
+      };
+    </script>
+  </body>
+</html>
